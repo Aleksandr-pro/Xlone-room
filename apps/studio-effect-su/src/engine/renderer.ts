@@ -1,4 +1,5 @@
 import {
+  evaluateProp,
   getLayerWorldMatrix,
   isLayerActiveAtTime,
   transformPoint,
@@ -101,12 +102,16 @@ function drawShape(ctx: CanvasRenderingContext2D, s: ShapeLayerData): void {
   }
 }
 
-function drawText(ctx: CanvasRenderingContext2D, t: TextLayerData): void {
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  t: TextLayerData,
+  revealOverride?: number
+): void {
   ctx.font = `${t.fontWeight} ${t.fontSize}px ${t.fontFamily}`;
   ctx.textAlign = t.align;
   ctx.textBaseline = 'middle';
 
-  const reveal = t.revealProgress ?? 100;
+  const reveal = revealOverride ?? t.revealProgress ?? 100;
   const fullText = t.text;
   const visibleLen = Math.round((fullText.length * Math.max(0, Math.min(100, reveal))) / 100);
   const clipped = fullText.slice(0, visibleLen);
@@ -117,7 +122,6 @@ function drawText(ctx: CanvasRenderingContext2D, t: TextLayerData): void {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const y = startY + i * lineH;
-    // Apply letter spacing cleanly if supported
     if ('letterSpacing' in ctx) {
       (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${t.letterSpacing}px`;
     }
@@ -175,7 +179,7 @@ function drawMedia(ctx: CanvasRenderingContext2D, layer: Layer, time: number): v
   }
 }
 
-export function getLayerLocalBounds(layer: Layer): { width: number; height: number } {
+export function getLayerLocalBounds(layer: Layer, allComps?: Composition[]): { width: number; height: number } {
   if (layer.type === 'solid' && layer.solidData) {
     return { width: layer.solidData.width, height: layer.solidData.height };
   }
@@ -195,7 +199,137 @@ export function getLayerLocalBounds(layer: Layer): { width: number; height: numb
       height: layer.mediaData.naturalHeight || 400,
     };
   }
+  if (layer.type === 'precomp' && layer.precompData && allComps) {
+    const sub = allComps.find((c) => c.id === layer.precompData!.compId);
+    if (sub) return { width: sub.width, height: sub.height };
+  }
   return { width: 140, height: 140 };
+}
+
+function drawLayerContent(
+  ctx: CanvasRenderingContext2D,
+  layer: Layer,
+  layerIndex: number,
+  comp: Composition,
+  time: number,
+  scale: number,
+  allComps: Composition[],
+  visitedComps: Set<string>
+): void {
+  if (layer.type === 'solid') drawSolid(ctx, layer);
+  else if (layer.type === 'shape' && layer.shapeData) drawShape(ctx, layer.shapeData);
+  else if (layer.type === 'text' && layer.textData) {
+    const reveal = layer.textReveal
+      ? evaluateProp(layer.textReveal, time, layerIndex, comp, `${layer.id}:textReveal`)
+      : layer.textData.revealProgress;
+    drawText(ctx, layer.textData, reveal);
+  } else if (layer.type === 'media') drawMedia(ctx, layer, time);
+  else if (layer.type === 'precomp' && layer.precompData) {
+    const sub = allComps.find((c) => c.id === layer.precompData!.compId);
+    if (sub && !visitedComps.has(sub.id)) {
+      const subW = Math.max(2, Math.round(sub.width * scale));
+      const subH = Math.max(2, Math.round(sub.height * scale));
+      const subCanvas = acquireCanvas(subW, subH);
+      const subCtx = subCanvas.getContext('2d')!;
+      const nextVisited = new Set(visitedComps);
+      nextVisited.add(sub.id);
+      const subTime = Math.max(0, time - layer.inPoint + layer.startTime);
+      renderCompositionInternal(subCtx, sub, subTime, {
+        renderScale: scale,
+        transparentBg: true,
+        allCompositions: allComps,
+        visitedComps: nextVisited,
+      });
+      ctx.drawImage(subCanvas, -sub.width / 2, -sub.height / 2, sub.width, sub.height);
+      releaseCanvas(subCanvas);
+    }
+  }
+}
+
+function applyMaskToLayerCanvas(
+  layerCanvas: HTMLCanvasElement,
+  layer: Layer,
+  matrix: WorldMatrix,
+  scale: number
+): void {
+  const mask = layer.mask;
+  if (!mask || !mask.enabled) return;
+
+  const w = layerCanvas.width;
+  const h = layerCanvas.height;
+  const maskCanvas = acquireCanvas(w, h);
+  const mctx = maskCanvas.getContext('2d')!;
+
+  mctx.save();
+  mctx.setTransform(
+    matrix.a * scale,
+    matrix.b * scale,
+    matrix.c * scale,
+    matrix.d * scale,
+    matrix.e * scale,
+    matrix.f * scale
+  );
+  if (mask.feather > 0.2) {
+    mctx.filter = `blur(${(mask.feather * scale).toFixed(1)}px)`;
+  }
+  mctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0, Math.min(1, mask.opacity / 100)).toFixed(2)})`;
+  mctx.beginPath();
+  if (mask.shape === 'ellipse') {
+    mctx.ellipse(mask.x, mask.y, Math.abs(mask.width / 2), Math.abs(mask.height / 2), 0, 0, Math.PI * 2);
+  } else {
+    mctx.rect(mask.x - mask.width / 2, mask.y - mask.height / 2, mask.width, mask.height);
+  }
+  mctx.fill();
+  mctx.restore();
+
+  const lctx = layerCanvas.getContext('2d')!;
+  lctx.save();
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.globalCompositeOperation = mask.inverted ? 'destination-out' : 'destination-in';
+  lctx.drawImage(maskCanvas, 0, 0);
+  lctx.restore();
+
+  releaseCanvas(maskCanvas);
+}
+
+function renderSingleLayerBuffer(
+  layer: Layer,
+  layerIndex: number,
+  comp: Composition,
+  time: number,
+  scale: number,
+  w: number,
+  h: number,
+  allComps: Composition[],
+  visitedComps: Set<string>
+): { canvas: HTMLCanvasElement; opacity: number } | null {
+  const matrix = getLayerWorldMatrix(layer, comp, time);
+  if (matrix.opacity <= 0.002) return null;
+
+  const layerCanvas = acquireCanvas(w, h);
+  const lctx = layerCanvas.getContext('2d')!;
+  lctx.setTransform(
+    matrix.a * scale,
+    matrix.b * scale,
+    matrix.c * scale,
+    matrix.d * scale,
+    matrix.e * scale,
+    matrix.f * scale
+  );
+  drawLayerContent(lctx, layer, layerIndex, comp, time, scale, allComps, visitedComps);
+
+  if (layer.mask?.enabled) {
+    applyMaskToLayerCanvas(layerCanvas, layer, matrix, scale);
+  }
+
+  const activeFx = layer.effects.filter((fx) => fx.enabled);
+  if (activeFx.length === 0) {
+    return { canvas: layerCanvas, opacity: matrix.opacity };
+  }
+
+  const effected = applyEffectStack(layerCanvas, activeFx, time, layer, layerIndex, comp, scale);
+  if (effected !== layerCanvas) releaseCanvas(layerCanvas);
+  return { canvas: effected, opacity: matrix.opacity };
 }
 
 export function renderComposition(
@@ -205,9 +339,28 @@ export function renderComposition(
   options: {
     renderScale?: number;
     transparentBg?: boolean;
+    allCompositions?: Composition[];
   } = {}
 ): void {
+  renderCompositionInternal(targetCtx, comp, time, {
+    ...options,
+    visitedComps: new Set([comp.id]),
+  });
+}
+
+function renderCompositionInternal(
+  targetCtx: CanvasRenderingContext2D,
+  comp: Composition,
+  time: number,
+  options: {
+    renderScale?: number;
+    transparentBg?: boolean;
+    allCompositions?: Composition[];
+    visitedComps: Set<string>;
+  }
+): void {
   const scale = options.renderScale ?? 1;
+  const allComps = options.allCompositions ?? [comp];
   const w = Math.max(1, Math.round(comp.width * scale));
   const h = Math.max(1, Math.round(comp.height * scale));
 
@@ -221,12 +374,21 @@ export function renderComposition(
 
   const hasSolo = comp.layers.some((l) => l.solo);
 
-  // Render bottom-to-top (index length-1 down to 0)
+  // Determine which layers are consumed as Track Mattes by the layer directly below them
+  const consumedAsMatte = new Set<number>();
+  for (let i = 1; i < comp.layers.length; i++) {
+    const l = comp.layers[i];
+    if (l.trackMatte && l.trackMatte !== 'none' && isLayerActiveAtTime(l, time)) {
+      consumedAsMatte.add(i - 1);
+    }
+  }
+
   for (let i = comp.layers.length - 1; i >= 0; i--) {
+    if (consumedAsMatte.has(i)) continue;
     const layer = comp.layers[i];
     if (!isLayerActiveAtTime(layer, time)) continue;
     if (hasSolo && !layer.solo) continue;
-    if (layer.type === 'null') continue;
+    if (layer.type === 'null' || layer.type === 'audio') continue;
 
     if (layer.type === 'adjustment') {
       const activeFx = layer.effects.filter((fx) => fx.enabled);
@@ -244,13 +406,20 @@ export function renderComposition(
       continue;
     }
 
-    const matrix = getLayerWorldMatrix(layer, comp, time);
-    if (matrix.opacity <= 0.002) continue;
+    const useMatte =
+      layer.trackMatte &&
+      layer.trackMatte !== 'none' &&
+      i > 0 &&
+      comp.layers[i - 1] &&
+      comp.layers[i - 1].type !== 'null' &&
+      comp.layers[i - 1].type !== 'audio';
 
     const activeFx = layer.effects.filter((fx) => fx.enabled);
+    const needsBuffer = activeFx.length > 0 || Boolean(layer.mask?.enabled) || Boolean(useMatte);
 
-    if (activeFx.length === 0) {
-      // Fast direct draw without offscreen buffer
+    if (!needsBuffer) {
+      const matrix = getLayerWorldMatrix(layer, comp, time);
+      if (matrix.opacity <= 0.002) continue;
       mctx.save();
       mctx.globalCompositeOperation = mapBlendMode(layer.blendMode);
       mctx.globalAlpha = matrix.opacity;
@@ -262,32 +431,58 @@ export function renderComposition(
         matrix.e * scale,
         matrix.f * scale
       );
-      drawLayerContent(mctx, layer, time);
+      drawLayerContent(mctx, layer, i, comp, time, scale, allComps, options.visitedComps);
       mctx.restore();
     } else {
-      // Offscreen render -> apply effects -> composite
-      const layerCanvas = acquireCanvas(w, h);
-      const lctx = layerCanvas.getContext('2d')!;
-      lctx.setTransform(
-        matrix.a * scale,
-        matrix.b * scale,
-        matrix.c * scale,
-        matrix.d * scale,
-        matrix.e * scale,
-        matrix.f * scale
+      const rendered = renderSingleLayerBuffer(
+        layer,
+        i,
+        comp,
+        time,
+        scale,
+        w,
+        h,
+        allComps,
+        options.visitedComps
       );
-      drawLayerContent(lctx, layer, time);
+      if (!rendered) continue;
 
-      const effected = applyEffectStack(layerCanvas, activeFx, time, layer, i, comp, scale);
+      if (useMatte) {
+        const matteLayer = comp.layers[i - 1];
+        if (isLayerActiveAtTime(matteLayer, time)) {
+          const matteBuf = renderSingleLayerBuffer(
+            matteLayer,
+            i - 1,
+            comp,
+            time,
+            scale,
+            w,
+            h,
+            allComps,
+            options.visitedComps
+          );
+          if (matteBuf) {
+            const rctx = rendered.canvas.getContext('2d')!;
+            rctx.save();
+            rctx.setTransform(1, 0, 0, 1, 0, 0);
+            rctx.globalAlpha = matteBuf.opacity;
+            rctx.globalCompositeOperation =
+              layer.trackMatte === 'alphaInverted' ? 'destination-out' : 'destination-in';
+            rctx.drawImage(matteBuf.canvas, 0, 0);
+            rctx.restore();
+            releaseCanvas(matteBuf.canvas);
+          }
+        }
+      }
+
       mctx.save();
       mctx.globalCompositeOperation = mapBlendMode(layer.blendMode);
-      mctx.globalAlpha = matrix.opacity;
+      mctx.globalAlpha = rendered.opacity;
       mctx.setTransform(1, 0, 0, 1, 0, 0);
-      mctx.drawImage(effected, 0, 0);
+      mctx.drawImage(rendered.canvas, 0, 0);
       mctx.restore();
 
-      if (effected !== layerCanvas) releaseCanvas(effected);
-      releaseCanvas(layerCanvas);
+      releaseCanvas(rendered.canvas);
     }
   }
 
@@ -300,13 +495,6 @@ export function renderComposition(
   releaseCanvas(mainCanvas);
 }
 
-function drawLayerContent(ctx: CanvasRenderingContext2D, layer: Layer, time: number): void {
-  if (layer.type === 'solid') drawSolid(ctx, layer);
-  else if (layer.type === 'shape' && layer.shapeData) drawShape(ctx, layer.shapeData);
-  else if (layer.type === 'text' && layer.textData) drawText(ctx, layer.textData);
-  else if (layer.type === 'media') drawMedia(ctx, layer, time);
-}
-
 export interface GizmoGeometry {
   corners: Array<{ x: number; y: number }>;
   rotateHandle: { x: number; y: number };
@@ -317,10 +505,11 @@ export interface GizmoGeometry {
 export function computeGizmoGeometry(
   layer: Layer,
   comp: Composition,
-  time: number
+  time: number,
+  allComps?: Composition[]
 ): GizmoGeometry {
   const mat = getLayerWorldMatrix(layer, comp, time);
-  const { width, height } = getLayerLocalBounds(layer);
+  const { width, height } = getLayerLocalBounds(layer, allComps);
   const hw = width / 2;
   const hh = height / 2;
 
@@ -357,7 +546,13 @@ export function renderEditorOverlay(
   comp: Composition,
   selectedLayer: Layer | null,
   time: number,
-  options: { showSafeMargins: boolean; showGizmo: boolean }
+  options: {
+    showSafeMargins: boolean;
+    showGizmo: boolean;
+    snapX?: boolean;
+    snapY?: boolean;
+    allCompositions?: Composition[];
+  }
 ): void {
   const cw = ctx.canvas.width;
   const ch = ctx.canvas.height;
@@ -370,21 +565,45 @@ export function renderEditorOverlay(
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 4]);
-    // 90% Action Safe
     ctx.strokeRect(cw * 0.05, ch * 0.05, cw * 0.9, ch * 0.9);
-    // 80% Title Safe
     ctx.strokeStyle = 'rgba(96, 165, 250, 0.32)';
     ctx.strokeRect(cw * 0.1, ch * 0.1, cw * 0.8, ch * 0.8);
     ctx.setLineDash([]);
   }
 
-  if (options.showGizmo && selectedLayer && selectedLayer.type !== 'adjustment') {
-    const g = computeGizmoGeometry(selectedLayer, comp, time);
+  // Center magnetic snap guides
+  if (options.snapX) {
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cw / 2, 0);
+    ctx.lineTo(cw / 2, ch);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (options.snapY) {
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, ch / 2);
+    ctx.lineTo(cw, ch / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (
+    options.showGizmo &&
+    selectedLayer &&
+    selectedLayer.type !== 'adjustment' &&
+    selectedLayer.type !== 'audio'
+  ) {
+    const g = computeGizmoGeometry(selectedLayer, comp, time, options.allCompositions);
     const pts = g.corners.map((p) => ({ x: p.x * sx, y: p.y * sy }));
     const rot = { x: g.rotateHandle.x * sx, y: g.rotateHandle.y * sy };
     const anc = { x: g.anchor.x * sx, y: g.anchor.y * sy };
 
-    // Bounding box
     ctx.strokeStyle = selectedLayer.locked ? '#ef4444' : '#4c8bf5';
     ctx.lineWidth = 1.75;
     ctx.beginPath();
@@ -395,14 +614,36 @@ export function renderEditorOverlay(
     ctx.closePath();
     ctx.stroke();
 
-    // Rotation stem
+    // Mask wireframe preview
+    if (selectedLayer.mask?.enabled) {
+      const m = selectedLayer.mask;
+      const mPts = [
+        transformPoint(g.matrix, m.x - m.width / 2, m.y - m.height / 2),
+        transformPoint(g.matrix, m.x + m.width / 2, m.y - m.height / 2),
+        transformPoint(g.matrix, m.x + m.width / 2, m.y + m.height / 2),
+        transformPoint(g.matrix, m.x - m.width / 2, m.y + m.height / 2),
+      ].map((p) => ({ x: p.x * sx, y: p.y * sy }));
+
+      ctx.save();
+      ctx.strokeStyle = '#f5b041';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(mPts[0].x, mPts[0].y);
+      ctx.lineTo(mPts[1].x, mPts[1].y);
+      ctx.lineTo(mPts[2].x, mPts[2].y);
+      ctx.lineTo(mPts[3].x, mPts[3].y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     const topMid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
     ctx.beginPath();
     ctx.moveTo(topMid.x, topMid.y);
     ctx.lineTo(rot.x, rot.y);
     ctx.stroke();
 
-    // Corner handles
     for (const p of pts) {
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#4c8bf5';
@@ -411,7 +652,6 @@ export function renderEditorOverlay(
       ctx.strokeRect(p.x - 5, p.y - 5, 10, 10);
     }
 
-    // Rotate knob
     ctx.beginPath();
     ctx.arc(rot.x, rot.y, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#f59e0b';
@@ -420,7 +660,6 @@ export function renderEditorOverlay(
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Anchor crosshair
     ctx.strokeStyle = '#f43f5e';
     ctx.lineWidth = 1.75;
     ctx.beginPath();

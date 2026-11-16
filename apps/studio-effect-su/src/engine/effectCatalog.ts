@@ -21,6 +21,57 @@ export const EFFECT_CATALOG: EffectDefinition[] = [
     ],
   },
   {
+    type: 'radialBlur',
+    name: 'Radial Zoom Blur',
+    category: 'Blur & Sharpen',
+    description: 'Эффект скоростного зума от центра',
+    params: [
+      { key: 'amount', label: 'Amount', min: 0, max: 100, step: 2, defaultValue: 35, unit: '%' },
+      { key: 'steps', label: 'Quality Steps', min: 3, max: 12, step: 1, defaultValue: 7, unit: '' },
+    ],
+  },
+  {
+    type: 'directionalBlur',
+    name: 'Directional Blur',
+    category: 'Blur & Sharpen',
+    description: 'Направленное размытие движения (Motion)',
+    params: [
+      { key: 'angle', label: 'Direction', min: -180, max: 180, step: 2, defaultValue: 0, unit: '°' },
+      { key: 'length', label: 'Blur Length', min: 0, max: 80, step: 1, defaultValue: 24, unit: 'px' },
+    ],
+  },
+  {
+    type: 'waveWarp',
+    name: 'Wave Warp',
+    category: 'Distort',
+    description: 'Синусоидальное искажение волной',
+    params: [
+      { key: 'height', label: 'Wave Height', min: 0, max: 60, step: 1, defaultValue: 14, unit: 'px' },
+      { key: 'width', label: 'Wave Width', min: 15, max: 240, step: 5, defaultValue: 80, unit: 'px' },
+      { key: 'speed', label: 'Wave Speed', min: 0, max: 10, step: 0.2, defaultValue: 2.5, unit: 'Hz' },
+    ],
+  },
+  {
+    type: 'tint',
+    name: 'Tint / Colorize',
+    category: 'Color Correction',
+    description: 'Тонирование в монохром или дуотон',
+    params: [
+      { key: 'amount', label: 'Amount to Tint', min: 0, max: 100, step: 2, defaultValue: 100, unit: '%' },
+      { key: 'hue', label: 'Tint Hue', min: 0, max: 360, step: 5, defaultValue: 215, unit: '°' },
+    ],
+  },
+  {
+    type: 'exposure',
+    name: 'Exposure & Gamma',
+    category: 'Color Correction',
+    description: 'Экспозиция (EV) и гамма-коррекция',
+    params: [
+      { key: 'exposure', label: 'Exposure', min: -2.5, max: 2.5, step: 0.1, defaultValue: 0.6, unit: 'EV' },
+      { key: 'gamma', label: 'Gamma', min: 0.4, max: 2.4, step: 0.05, defaultValue: 1.0, unit: '' },
+    ],
+  },
+  {
     type: 'rgbSplit',
     name: 'RGB Split',
     category: 'Distort',

@@ -58,6 +58,8 @@ export const LAYER_COLORS: Record<LayerType, string> = {
   shape: '#22c55e',
   solid: '#d946ef',
   media: '#38bdf8',
+  audio: '#10b981',
+  precomp: '#6366f1',
   adjustment: '#a855f7',
   null: '#f59e0b',
 };
@@ -139,6 +141,10 @@ function defaultLayerName(type: LayerType): string {
       return 'BG Solid';
     case 'media':
       return 'Media Layer';
+    case 'audio':
+      return 'Audio Track';
+    case 'precomp':
+      return 'Pre-Comp';
     case 'adjustment':
       return 'Adjustment Layer';
     case 'null':

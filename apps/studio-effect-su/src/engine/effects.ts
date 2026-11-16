@@ -66,6 +66,102 @@ export function applyEffectStack(
         break;
       }
 
+      case 'radialBlur': {
+        const amount = Math.max(0, pVal(fx, 'amount', 35, time, layerIndex, comp)) / 100;
+        const steps = Math.max(2, Math.min(12, Math.round(pVal(fx, 'steps', 7, time, layerIndex, comp))));
+        if (amount <= 0.01) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        octx.save();
+        octx.globalAlpha = 1 / steps;
+        for (let s = 0; s < steps; s++) {
+          const factor = 1 + (s / steps) * amount * 0.35;
+          const dw = w * factor;
+          const dh = h * factor;
+          octx.drawImage(current, (w - dw) / 2, (h - dh) / 2, dw, dh);
+        }
+        octx.restore();
+        break;
+      }
+
+      case 'directionalBlur': {
+        const angle = (pVal(fx, 'angle', 0, time, layerIndex, comp) * Math.PI) / 180;
+        const length = Math.max(0, pVal(fx, 'length', 24, time, layerIndex, comp)) * renderScale;
+        if (length < 0.5) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const samples = 9;
+        const dx = Math.cos(angle) * length;
+        const dy = Math.sin(angle) * length;
+        octx.save();
+        octx.globalAlpha = 1 / samples;
+        for (let s = 0; s < samples; s++) {
+          const offset = s / (samples - 1) - 0.5;
+          octx.drawImage(current, dx * offset, dy * offset);
+        }
+        octx.restore();
+        break;
+      }
+
+      case 'waveWarp': {
+        const amp = pVal(fx, 'height', 14, time, layerIndex, comp) * renderScale;
+        const waveW = Math.max(8, pVal(fx, 'width', 80, time, layerIndex, comp) * renderScale);
+        const speed = pVal(fx, 'speed', 2.5, time, layerIndex, comp);
+        if (Math.abs(amp) < 0.5) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const stripH = Math.max(2, Math.round(3 * renderScale));
+        const phase = time * speed * Math.PI * 2;
+        for (let y = 0; y < h; y += stripH) {
+          const sh = Math.min(stripH, h - y);
+          const shift = Math.sin((y / waveW) * Math.PI * 2 + phase) * amp;
+          octx.drawImage(current, 0, y, w, sh, shift, y, w, sh);
+        }
+        break;
+      }
+
+      case 'tint': {
+        const amt = Math.max(0, Math.min(100, pVal(fx, 'amount', 100, time, layerIndex, comp))) / 100;
+        const hue = pVal(fx, 'hue', 215, time, layerIndex, comp);
+        octx.drawImage(current, 0, 0);
+        if (amt > 0.01) {
+          octx.save();
+          octx.globalAlpha = amt;
+          octx.filter = `grayscale(100%) sepia(100%) hue-rotate(${(hue - 38).toFixed(1)}deg) saturate(180%)`;
+          octx.drawImage(current, 0, 0);
+          octx.restore();
+        }
+        break;
+      }
+
+      case 'exposure': {
+        const ev = pVal(fx, 'exposure', 0.6, time, layerIndex, comp);
+        const gamma = Math.max(0.2, pVal(fx, 'gamma', 1.0, time, layerIndex, comp));
+        const mult = Math.pow(2, ev);
+        const cctx = current.getContext('2d');
+        if (!cctx) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const src = cctx.getImageData(0, 0, w, h);
+        const dst = octx.createImageData(w, h);
+        const sData = src.data;
+        const dData = dst.data;
+        const invGamma = 1 / gamma;
+        for (let p = 0; p < sData.length; p += 4) {
+          if (sData[p + 3] === 0) continue;
+          dData[p] = Math.min(255, Math.pow((sData[p] / 255) * mult, invGamma) * 255);
+          dData[p + 1] = Math.min(255, Math.pow((sData[p + 1] / 255) * mult, invGamma) * 255);
+          dData[p + 2] = Math.min(255, Math.pow((sData[p + 2] / 255) * mult, invGamma) * 255);
+          dData[p + 3] = sData[p + 3];
+        }
+        octx.putImageData(dst, 0, 0);
+        break;
+      }
+
       case 'glow': {
         const radius = Math.max(0, pVal(fx, 'radius', 18, time, layerIndex, comp)) * renderScale;
         const intensity = Math.max(0, pVal(fx, 'intensity', 85, time, layerIndex, comp)) / 100;

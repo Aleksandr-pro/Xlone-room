@@ -24,6 +24,7 @@ export function mountViewport(container: HTMLElement): void {
         </div>
         <div class="viewport-hud">
           <span class="hud-badge" data-comp-badge>1080×1920 • 30fps</span>
+          <button class="hud-badge hud-btn" data-vp-zoom title="Viewport Zoom">100%</button>
         </div>
       </div>
       <div class="transport-bar">
@@ -56,6 +57,7 @@ export function mountViewport(container: HTMLElement): void {
   const overlayCtx = overlayCanvas.getContext('2d')!;
 
   const badgeEl = container.querySelector<HTMLElement>('[data-comp-badge]')!;
+  const vpZoomBtn = container.querySelector<HTMLButtonElement>('[data-vp-zoom]')!;
   const timecodeEl = container.querySelector<HTMLElement>('[data-timecode]')!;
   const frameCounterEl = container.querySelector<HTMLElement>('[data-frame-counter]')!;
   const playBtn = container.querySelector<HTMLButtonElement>('[data-action="play"]')!;
@@ -64,6 +66,9 @@ export function mountViewport(container: HTMLElement): void {
   const safeBtn = container.querySelector<HTMLButtonElement>('[data-action="safeMargins"]')!;
   const gizmoBtn = container.querySelector<HTMLButtonElement>('[data-action="gizmo"]')!;
   const gridBtn = container.querySelector<HTMLButtonElement>('[data-action="grid"]')!;
+
+  let activeSnapX = false;
+  let activeSnapY = false;
 
   function layoutCanvas(): void {
     const comp = store.getActiveComp();
@@ -81,8 +86,12 @@ export function mountViewport(container: HTMLElement): void {
       displayW = displayH * aspect;
     }
 
+    displayW *= state.viewportZoom;
+    displayH *= state.viewportZoom;
+
     frameEl.style.width = `${Math.round(displayW)}px`;
     frameEl.style.height = `${Math.round(displayH)}px`;
+    frameEl.style.transform = `translate(${state.viewportPanX}px, ${state.viewportPanY}px)`;
     frameEl.classList.toggle('checkerboard', state.transparentGrid);
 
     const renderW = Math.max(2, Math.round(comp.width * state.previewQuality));
@@ -105,10 +114,12 @@ export function mountViewport(container: HTMLElement): void {
     layoutCanvas();
     const state = store.getState();
     const comp = store.getActiveComp();
+    const allComps = state.project.compositions;
 
     renderComposition(compCtx, comp, state.currentTime, {
       renderScale: state.previewQuality,
       transparentBg: state.transparentGrid,
+      allCompositions: allComps,
     });
 
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -116,6 +127,9 @@ export function mountViewport(container: HTMLElement): void {
       renderEditorOverlay(overlayCtx, comp, store.getSelectedLayer(), state.currentTime, {
         showSafeMargins: state.showSafeMargins,
         showGizmo: state.showGizmo,
+        snapX: activeSnapX,
+        snapY: activeSnapY,
+        allCompositions: allComps,
       });
     }
 
@@ -127,6 +141,7 @@ export function mountViewport(container: HTMLElement): void {
     const state = store.getState();
     const comp = store.getActiveComp();
     badgeEl.textContent = `${comp.width}×${comp.height} • ${comp.fps}fps`;
+    vpZoomBtn.textContent = `${Math.round(state.viewportZoom * 100)}%`;
     playBtn.innerHTML = state.isPlaying ? ICONS.pause : ICONS.play;
     playBtn.classList.toggle('active', state.isPlaying);
     loopBtn.classList.toggle('active', state.loop);
@@ -137,7 +152,22 @@ export function mountViewport(container: HTMLElement): void {
     gridBtn.classList.toggle('active', state.transparentGrid);
   }
 
-  // Transport button handlers
+  vpZoomBtn.addEventListener('click', () => {
+    const cur = store.getState().viewportZoom;
+    const next = cur < 1 ? 1 : cur < 1.5 ? 1.5 : cur < 2 ? 2 : 0.75;
+    store.setViewportTransform(next, 0, 0);
+  });
+
+  stage.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      store.setViewportTransform(store.getState().viewportZoom + delta);
+    },
+    { passive: false }
+  );
+
   container.querySelector('[data-action="toStart"]')!.addEventListener('click', () => {
     store.stopPlay();
     store.setTime(0);
@@ -164,7 +194,6 @@ export function mountViewport(container: HTMLElement): void {
   gizmoBtn.addEventListener('click', () => store.toggleGizmo());
   gridBtn.addEventListener('click', () => store.toggleTransparentGrid());
 
-  // Interactive Gizmo Pointer Events
   type DragMode = 'move' | 'scale' | 'rotate';
   let drag: {
     mode: DragMode;
@@ -194,14 +223,16 @@ export function mountViewport(container: HTMLElement): void {
     pt: { x: number; y: number },
     layer: ReturnType<typeof store.getSelectedLayer>
   ): boolean {
-    if (!layer || layer.type === 'adjustment' || layer.type === 'null') return false;
+    if (!layer || layer.type === 'adjustment' || layer.type === 'null' || layer.type === 'audio') {
+      return false;
+    }
     const comp = store.getActiveComp();
     const t = store.getState().currentTime;
     if (!isLayerActiveAtTime(layer, t)) return false;
     const inv = invertMatrix(getLayerWorldMatrix(layer, comp, t));
     if (!inv) return false;
     const local = transformPoint(inv, pt.x, pt.y);
-    const bounds = getLayerLocalBounds(layer);
+    const bounds = getLayerLocalBounds(layer, store.getState().project.compositions);
     return (
       Math.abs(local.x) <= bounds.width / 2 + 24 &&
       Math.abs(local.y) <= bounds.height / 2 + 24
@@ -215,8 +246,19 @@ export function mountViewport(container: HTMLElement): void {
     const hitTol = Math.min(comp.width, comp.height) * 0.05;
 
     const selected = store.getSelectedLayer();
-    if (selected && state.showGizmo && !selected.locked && selected.type !== 'adjustment') {
-      const g = computeGizmoGeometry(selected, comp, state.currentTime);
+    if (
+      selected &&
+      state.showGizmo &&
+      !selected.locked &&
+      selected.type !== 'adjustment' &&
+      selected.type !== 'audio'
+    ) {
+      const g = computeGizmoGeometry(
+        selected,
+        comp,
+        state.currentTime,
+        state.project.compositions
+      );
 
       const startX = store.getEvaluatedProp(selected, 'x');
       const startY = store.getEvaluatedProp(selected, 'y');
@@ -253,7 +295,6 @@ export function mountViewport(container: HTMLElement): void {
       }
     }
 
-    // Otherwise try selecting tapped layer top-to-bottom
     for (const layer of comp.layers) {
       if (isPointInLayer(pt, layer)) {
         store.selectLayer(layer.id);
@@ -293,8 +334,27 @@ export function mountViewport(container: HTMLElement): void {
         }
       }
 
-      store.setTransformValue(layer.id, 'x', Math.round(drag.startX + localDx), { skipUndo: true });
-      store.setTransformValue(layer.id, 'y', Math.round(drag.startY + localDy), { skipUndo: true });
+      let nextX = Math.round(drag.startX + localDx);
+      let nextY = Math.round(drag.startY + localDy);
+
+      // Magnetic center snap when unparented
+      activeSnapX = false;
+      activeSnapY = false;
+      if (!layer.parentId) {
+        const cx = Math.round(comp.width / 2);
+        const cy = Math.round(comp.height / 2);
+        if (Math.abs(nextX - cx) <= 16) {
+          nextX = cx;
+          activeSnapX = true;
+        }
+        if (Math.abs(nextY - cy) <= 16) {
+          nextY = cy;
+          activeSnapY = true;
+        }
+      }
+
+      store.setTransformValue(layer.id, 'x', nextX, { skipUndo: true });
+      store.setTransformValue(layer.id, 'y', nextY, { skipUndo: true });
     } else if (drag.mode === 'scale') {
       const dist = Math.max(5, Math.hypot(pt.x - drag.anchorWorld.x, pt.y - drag.anchorWorld.y));
       const ratio = dist / drag.startDist;
@@ -310,7 +370,12 @@ export function mountViewport(container: HTMLElement): void {
   });
 
   const endDrag = () => {
-    drag = null;
+    if (drag) {
+      drag = null;
+      activeSnapX = false;
+      activeSnapY = false;
+      drawFrame();
+    }
   };
   overlayCanvas.addEventListener('pointerup', endDrag);
   overlayCanvas.addEventListener('pointercancel', endDrag);

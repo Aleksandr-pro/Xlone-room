@@ -45,15 +45,20 @@ export interface TransformProps {
 export type EffectType =
   | 'glow'
   | 'blur'
+  | 'radialBlur'
+  | 'directionalBlur'
   | 'rgbSplit'
   | 'glitch'
+  | 'waveWarp'
   | 'motionTile'
+  | 'shake'
   | 'dropShadow'
   | 'hueSat'
   | 'contrast'
+  | 'tint'
+  | 'exposure'
   | 'vignette'
-  | 'pixelate'
-  | 'shake';
+  | 'pixelate';
 
 export interface EffectParamMeta {
   key: string;
@@ -81,7 +86,15 @@ export interface EffectInstance {
   params: Record<string, AnimatableProp>;
 }
 
-export type LayerType = 'text' | 'shape' | 'solid' | 'media' | 'adjustment' | 'null';
+export type LayerType =
+  | 'text'
+  | 'shape'
+  | 'solid'
+  | 'media'
+  | 'audio'
+  | 'precomp'
+  | 'adjustment'
+  | 'null';
 
 export type BlendMode =
   | 'normal'
@@ -92,6 +105,20 @@ export type BlendMode =
   | 'difference'
   | 'lighten'
   | 'darken';
+
+export type TrackMatteMode = 'none' | 'alpha' | 'alphaInverted';
+
+export interface LayerMask {
+  enabled: boolean;
+  shape: 'rect' | 'ellipse';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  feather: number;
+  inverted: boolean;
+  opacity: number; // 0..100
+}
 
 export type ShapeKind = 'rect' | 'roundedRect' | 'ellipse' | 'star' | 'polygon';
 
@@ -132,10 +159,23 @@ export interface SolidLayerData {
 
 export interface MediaLayerData {
   mediaType: 'image' | 'video';
-  src: string; // data URL or object URL
+  src: string;
   fileName: string;
   naturalWidth: number;
   naturalHeight: number;
+}
+
+export interface AudioLayerData {
+  src: string;
+  fileName: string;
+  volume: number; // 0..100
+  duration: number; // seconds
+  waveform: number[]; // normalized 0..1 visual bars
+  envelope: number[]; // 30 Hz amplitude values 0..100 for expressions / beat keyframes
+}
+
+export interface PrecompLayerData {
+  compId: string;
 }
 
 export interface Layer {
@@ -149,15 +189,20 @@ export interface Layer {
   expanded: boolean;
   inPoint: number; // seconds
   outPoint: number; // seconds
-  startTime: number; // offset for media
+  startTime: number; // offset for media/precomp/audio
   blendMode: BlendMode;
+  trackMatte?: TrackMatteMode;
+  mask?: LayerMask;
   parentId: string | null;
   transform: TransformProps;
   effects: EffectInstance[];
   textData?: TextLayerData;
+  textReveal?: AnimatableProp;
   shapeData?: ShapeLayerData;
   solidData?: SolidLayerData;
   mediaData?: MediaLayerData;
+  audioData?: AudioLayerData;
+  precompData?: PrecompLayerData;
 }
 
 export interface Composition {

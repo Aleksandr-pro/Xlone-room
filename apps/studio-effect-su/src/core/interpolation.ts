@@ -1,3 +1,4 @@
+import { getAudioAmplitudeAtTime } from './audio';
 import { applyEasing } from './easing';
 import { evaluateExpression } from './expressions';
 import type {
@@ -66,6 +67,7 @@ export function evaluateProp(
     fps: comp.fps,
     duration: comp.duration,
     seed: hashString(propKeySeed) + layerIndex * 31,
+    audioAmp: getAudioAmplitudeAtTime(comp, time),
     evalAtTime: (t: number) => evaluateKeyframes(prop, t),
     firstKeyframeTime: sorted[0]?.time,
     lastKeyframeTime: sorted[sorted.length - 1]?.time,

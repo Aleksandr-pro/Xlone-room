@@ -15,6 +15,7 @@ export interface ExpressionContext {
   fps: number;
   duration: number;
   seed: number;
+  audioAmp?: number;
   evalAtTime?: (t: number) => number;
   firstKeyframeTime?: number;
   lastKeyframeTime?: number;
@@ -319,6 +320,8 @@ class Parser {
         return this.ctx.fps;
       case 'duration':
         return this.ctx.duration;
+      case 'audioAmp':
+        return this.ctx.audioAmp ?? 0;
       case 'PI':
       case 'Math.PI':
         return Math.PI;
@@ -389,6 +392,12 @@ class Parser {
         if (tMax === tMin) return v1;
         const p = Math.min(1, Math.max(0, (t - tMin) / (tMax - tMin)));
         return v1 + (v2 - v1) * p;
+      }
+      case 'random': {
+        const minV = args.length >= 2 ? n(0) : 0;
+        const maxV = args.length >= 2 ? n(1) : n(0, 1);
+        const r = Math.abs(Math.sin((Math.floor(this.ctx.time * this.ctx.fps) + this.ctx.seed) * 12.9898) * 43758.5453) % 1;
+        return minV + (maxV - minV) * r;
       }
       default:
         throw new Error(`Unknown function '${rawName}'`);

@@ -1,4 +1,5 @@
-import { createEffect, createLayer, kf, uid } from '../core/factories';
+import { stopAllAudio, syncAudioPlayback } from '../core/audio';
+import { createComposition, createEffect, createLayer, kf, prop, uid } from '../core/factories';
 import { HistoryStack } from '../core/history';
 import { evaluateKeyframes, evaluateProp } from '../core/interpolation';
 import { createNeonIntroProject } from '../core/presets';
@@ -11,6 +12,7 @@ import type {
   EffectType,
   Keyframe,
   Layer,
+  LayerMask,
   LayerType,
   StudioProject,
   TransformPropKey,
@@ -23,6 +25,8 @@ export interface SelectedKeyframeRef {
   propKey: TransformPropKey;
   kfId: string;
 }
+
+export type TextAnimPreset = 'typewriter' | 'popIn' | 'slideUp' | 'neonPulse';
 
 export interface StoreState {
   project: StudioProject;
@@ -38,6 +42,9 @@ export interface StoreState {
   transparentGrid: boolean;
   activeTab: ActiveTab;
   timelineZoom: number; // px per second
+  viewportZoom: number;
+  viewportPanX: number;
+  viewportPanY: number;
 }
 
 type Listener = () => void;
@@ -52,7 +59,8 @@ class StudioStore {
 
   constructor() {
     const project = this.loadFromStorage() ?? createNeonIntroProject();
-    const activeComp = project.compositions.find((c) => c.id === project.activeCompId) ?? project.compositions[0];
+    const activeComp =
+      project.compositions.find((c) => c.id === project.activeCompId) ?? project.compositions[0];
     this.state = {
       project,
       selectedLayerId: activeComp?.layers[1]?.id ?? activeComp?.layers[0]?.id ?? null,
@@ -67,6 +75,9 @@ class StudioStore {
       transparentGrid: false,
       activeTab: 'timeline',
       timelineZoom: 90,
+      viewportZoom: 1,
+      viewportPanX: 0,
+      viewportPanY: 0,
     };
   }
 
@@ -76,7 +87,11 @@ class StudioStore {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as StudioProject;
-      if (parsed?.app === 'StudioEffect(SU)' && Array.isArray(parsed.compositions) && parsed.compositions.length > 0) {
+      if (
+        parsed?.app === 'StudioEffect(SU)' &&
+        Array.isArray(parsed.compositions) &&
+        parsed.compositions.length > 0
+      ) {
         return parsed;
       }
       return null;
@@ -90,7 +105,7 @@ class StudioStore {
       if (typeof localStorage === 'undefined') return;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state.project));
     } catch {
-      // Ignore quota exceeded errors when large media data URLs exist
+      // Ignore quota exceeded
     }
   }
 
@@ -100,7 +115,9 @@ class StudioStore {
 
   getActiveComp(): Composition {
     const { project } = this.state;
-    return project.compositions.find((c) => c.id === project.activeCompId) ?? project.compositions[0];
+    return (
+      project.compositions.find((c) => c.id === project.activeCompId) ?? project.compositions[0]
+    );
   }
 
   getSelectedLayer(): Layer | null {
@@ -194,6 +211,20 @@ class StudioStore {
     this.emit();
   }
 
+  setViewportTransform(zoom: number, panX = this.state.viewportPanX, panY = this.state.viewportPanY): void {
+    this.state.viewportZoom = Math.min(3, Math.max(0.4, zoom));
+    this.state.viewportPanX = panX;
+    this.state.viewportPanY = panY;
+    this.emit();
+  }
+
+  resetViewport(): void {
+    this.state.viewportZoom = 1;
+    this.state.viewportPanX = 0;
+    this.state.viewportPanY = 0;
+    this.emit();
+  }
+
   selectLayer(layerId: string | null): void {
     this.state.selectedLayerId = layerId;
     this.state.selectedKeyframe = null;
@@ -218,6 +249,7 @@ class StudioStore {
     const comp = this.getActiveComp();
     const clamped = Math.max(0, Math.min(comp.duration, seconds));
     this.state.currentTime = clamped;
+    syncAudioPlayback(comp, clamped, this.state.isPlaying);
     this.emitTime();
   }
 
@@ -243,6 +275,7 @@ class StudioStore {
     }
     this.state.isPlaying = true;
     this.lastTick = performance.now();
+    syncAudioPlayback(comp, this.state.currentTime, true);
     this.emit();
 
     const loop = (now: number) => {
@@ -257,12 +290,14 @@ class StudioStore {
         } else {
           this.state.currentTime = c.duration;
           this.state.isPlaying = false;
+          stopAllAudio();
           this.emitTime();
           this.emit();
           return;
         }
       }
       this.state.currentTime = next;
+      syncAudioPlayback(c, next, true);
       this.emitTime();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -276,6 +311,7 @@ class StudioStore {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    stopAllAudio();
     this.emit();
   }
 
@@ -290,7 +326,63 @@ class StudioStore {
     this.emit();
   }
 
-  updateComposition(patch: Partial<Pick<Composition, 'name' | 'width' | 'height' | 'fps' | 'duration' | 'backgroundColor'>>): void {
+  switchComposition(compId: string): void {
+    if (!this.state.project.compositions.some((c) => c.id === compId)) return;
+    this.stopPlay();
+    this.state.project.activeCompId = compId;
+    const comp = this.getActiveComp();
+    this.state.selectedLayerId = comp.layers[0]?.id ?? null;
+    this.state.selectedKeyframe = null;
+    this.state.currentTime = 0;
+    this.emit();
+  }
+
+  addComposition(name: string, width = 1080, height = 1920, fps = 30, duration = 5): Composition {
+    this.stopPlay();
+    this.snapshotForUndo();
+    const comp = createComposition(name, width, height, fps, duration);
+    this.state.project.compositions.push(comp);
+    this.state.project.activeCompId = comp.id;
+    this.state.selectedLayerId = null;
+    this.state.selectedKeyframe = null;
+    this.state.currentTime = 0;
+    this.emit();
+    return comp;
+  }
+
+  precomposeLayer(layerId: string): void {
+    const comp = this.getActiveComp();
+    const idx = comp.layers.findIndex((l) => l.id === layerId);
+    if (idx < 0) return;
+    const src = comp.layers[idx];
+    if (src.type === 'audio' || src.type === 'adjustment') return;
+
+    this.snapshotForUndo();
+    const subComp = createComposition(
+      `${src.name} Comp`,
+      comp.width,
+      comp.height,
+      comp.fps,
+      comp.duration
+    );
+    const innerLayer = structuredClone(src);
+    innerLayer.parentId = null;
+    subComp.layers = [innerLayer];
+    this.state.project.compositions.push(subComp);
+
+    const precompLayer = createLayer('precomp', comp, `[Pre] ${src.name}`);
+    precompLayer.precompData = { compId: subComp.id };
+    precompLayer.inPoint = src.inPoint;
+    precompLayer.outPoint = src.outPoint;
+    precompLayer.parentId = src.parentId;
+    comp.layers.splice(idx, 1, precompLayer);
+    this.state.selectedLayerId = precompLayer.id;
+    this.emit();
+  }
+
+  updateComposition(
+    patch: Partial<Pick<Composition, 'name' | 'width' | 'height' | 'fps' | 'duration' | 'backgroundColor'>>
+  ): void {
     this.snapshotForUndo();
     const comp = this.getActiveComp();
     Object.assign(comp, patch);
@@ -334,7 +426,6 @@ class StudioStore {
     const copy = structuredClone(comp.layers[srcIdx]);
     copy.id = uid('layer');
     copy.name = `${copy.name} Copy`;
-    // Regenerate keyframe & effect IDs
     for (const key of Object.keys(copy.transform) as TransformPropKey[]) {
       copy.transform[key].keyframes = copy.transform[key].keyframes.map((k) => ({
         ...k,
@@ -370,6 +461,112 @@ class StudioStore {
     this.emit();
   }
 
+  centerAnchorPoint(layerId: string): void {
+    this.updateLayer(layerId, (l) => {
+      l.transform.anchorX.keyframes = [];
+      l.transform.anchorY.keyframes = [];
+      l.transform.anchorX.value = 0;
+      l.transform.anchorY.value = 0;
+    });
+  }
+
+  toggleMask(layerId: string): void {
+    const comp = this.getActiveComp();
+    this.updateLayer(layerId, (l) => {
+      if (!l.mask) {
+        l.mask = {
+          enabled: true,
+          shape: 'rect',
+          x: 0,
+          y: 0,
+          width: Math.round(comp.width * 0.45),
+          height: Math.round(comp.height * 0.3),
+          feather: 12,
+          inverted: false,
+          opacity: 100,
+        };
+      } else {
+        l.mask.enabled = !l.mask.enabled;
+      }
+    });
+  }
+
+  updateMask(layerId: string, patch: Partial<LayerMask>, skipUndo = false): void {
+    this.updateLayer(
+      layerId,
+      (l) => {
+        if (!l.mask) return;
+        Object.assign(l.mask, patch);
+      },
+      skipUndo
+    );
+  }
+
+  applyTextPreset(layerId: string, preset: TextAnimPreset): void {
+    const comp = this.getActiveComp();
+    const layer = comp.layers.find((l) => l.id === layerId);
+    if (!layer || layer.type !== 'text') return;
+    this.snapshotForUndo();
+    const t0 = Number(this.state.currentTime.toFixed(2));
+    const baseY = this.getEvaluatedProp(layer, 'y');
+
+    if (preset === 'typewriter') {
+      layer.textReveal = prop(100, [kf(t0, 0, 'linear'), kf(Math.min(comp.duration, t0 + 1.1), 100, 'linear')]);
+    } else if (preset === 'popIn') {
+      layer.transform.scaleX = prop(100, [
+        kf(t0, 15, 'easyEase'),
+        kf(Math.min(comp.duration, t0 + 0.35), 115, 'easyEase'),
+        kf(Math.min(comp.duration, t0 + 0.55), 100, 'easyEase'),
+      ]);
+      layer.transform.scaleY = prop(100, [
+        kf(t0, 15, 'easyEase'),
+        kf(Math.min(comp.duration, t0 + 0.35), 115, 'easyEase'),
+        kf(Math.min(comp.duration, t0 + 0.55), 100, 'easyEase'),
+      ]);
+      layer.transform.opacity = prop(100, [kf(t0, 0, 'easeOut'), kf(Math.min(comp.duration, t0 + 0.25), 100, 'linear')]);
+    } else if (preset === 'slideUp') {
+      layer.transform.y = prop(baseY, [kf(t0, baseY + 140, 'easyEase'), kf(Math.min(comp.duration, t0 + 0.7), baseY, 'easyEase')]);
+      layer.transform.opacity = prop(100, [kf(t0, 0, 'easeOut'), kf(Math.min(comp.duration, t0 + 0.45), 100, 'linear')]);
+    } else if (preset === 'neonPulse') {
+      if (!layer.effects.some((e) => e.type === 'glow')) {
+        layer.effects.push(createEffect('glow'));
+      }
+      layer.transform.scaleX = prop(100, [], '100 + Math.sin(time * 5) * 6');
+      layer.transform.scaleY = prop(100, [], '100 + Math.sin(time * 5) * 6');
+    }
+    this.emit();
+  }
+
+  generateAudioKeyframes(
+    audioLayerId: string,
+    targetLayerId: string,
+    propKey: TransformPropKey,
+    baseValue: number,
+    multiplier: number
+  ): number {
+    const comp = this.getActiveComp();
+    const audioLayer = comp.layers.find((l) => l.id === audioLayerId && l.type === 'audio');
+    const targetLayer = comp.layers.find((l) => l.id === targetLayerId);
+    if (!audioLayer?.audioData || !targetLayer) return 0;
+
+    this.snapshotForUndo();
+    const env = audioLayer.audioData.envelope;
+    const stepIdx = Math.max(1, Math.round(30 / Math.min(15, comp.fps)));
+    const newKfs: Keyframe[] = [];
+    for (let i = 0; i < env.length; i += stepIdx) {
+      const t = audioLayer.inPoint + i / 30;
+      if (t > audioLayer.outPoint || t > comp.duration) break;
+      const val = Number((baseValue + (env[i] / 100) * multiplier).toFixed(1));
+      newKfs.push(kf(Number(t.toFixed(3)), val, 'linear'));
+    }
+    targetLayer.transform[propKey].keyframes = newKfs;
+    targetLayer.expanded = true;
+    this.state.selectedLayerId = targetLayer.id;
+    this.state.selectedPropKey = propKey;
+    this.emit();
+    return newKfs.length;
+  }
+
   getEvaluatedProp(layer: Layer, propKey: TransformPropKey): number {
     const comp = this.getActiveComp();
     const idx = comp.layers.findIndex((l) => l.id === layer.id);
@@ -393,22 +590,22 @@ class StudioStore {
     if (!layer || layer.locked) return;
     if (!options.skipUndo) this.snapshotForUndo();
 
-    const prop = layer.transform[propKey];
+    const p = layer.transform[propKey];
     const t = this.state.currentTime;
     const snapTol = 0.5 / comp.fps;
 
-    if (prop.keyframes.length > 0) {
-      const existing = prop.keyframes.find((k) => Math.abs(k.time - t) <= snapTol);
+    if (p.keyframes.length > 0) {
+      const existing = p.keyframes.find((k) => Math.abs(k.time - t) <= snapTol);
       if (existing) {
         existing.value = value;
       } else {
         const newKf = kf(Number(t.toFixed(3)), value, 'easyEase');
-        prop.keyframes.push(newKf);
-        prop.keyframes.sort((a, b) => a.time - b.time);
+        p.keyframes.push(newKf);
+        p.keyframes.sort((a, b) => a.time - b.time);
         this.state.selectedKeyframe = { layerId, propKey, kfId: newKf.id };
       }
     } else {
-      prop.value = value;
+      p.value = value;
     }
 
     this.emit();
@@ -420,10 +617,10 @@ class StudioStore {
     if (!layer) return;
     this.snapshotForUndo();
 
-    const prop = layer.transform[propKey];
-    if (prop.keyframes.length > 0) {
-      prop.value = evaluateKeyframes(prop, this.state.currentTime);
-      prop.keyframes = [];
+    const p = layer.transform[propKey];
+    if (p.keyframes.length > 0) {
+      p.value = evaluateKeyframes(p, this.state.currentTime);
+      p.keyframes = [];
       if (
         this.state.selectedKeyframe?.layerId === layerId &&
         this.state.selectedKeyframe?.propKey === propKey
@@ -431,9 +628,9 @@ class StudioStore {
         this.state.selectedKeyframe = null;
       }
     } else {
-      const val = evaluateKeyframes(prop, this.state.currentTime);
+      const val = evaluateKeyframes(p, this.state.currentTime);
       const created = kf(Number(this.state.currentTime.toFixed(3)), val, 'easyEase');
-      prop.keyframes = [created];
+      p.keyframes = [created];
       this.state.selectedKeyframe = { layerId, propKey, kfId: created.id };
     }
     this.state.selectedPropKey = propKey;
@@ -446,21 +643,21 @@ class StudioStore {
     if (!layer) return;
     this.snapshotForUndo();
 
-    const prop = layer.transform[propKey];
+    const p = layer.transform[propKey];
     const t = this.state.currentTime;
     const snapTol = 0.5 / comp.fps;
-    const idx = prop.keyframes.findIndex((k) => Math.abs(k.time - t) <= snapTol);
+    const idx = p.keyframes.findIndex((k) => Math.abs(k.time - t) <= snapTol);
 
     if (idx >= 0) {
-      const removed = prop.keyframes.splice(idx, 1)[0];
+      const removed = p.keyframes.splice(idx, 1)[0];
       if (this.state.selectedKeyframe?.kfId === removed.id) {
         this.state.selectedKeyframe = null;
       }
     } else {
-      const val = evaluateKeyframes(prop, t);
+      const val = evaluateKeyframes(p, t);
       const created = kf(Number(t.toFixed(3)), val, 'easyEase');
-      prop.keyframes.push(created);
-      prop.keyframes.sort((a, b) => a.time - b.time);
+      p.keyframes.push(created);
+      p.keyframes.sort((a, b) => a.time - b.time);
       this.state.selectedKeyframe = { layerId, propKey, kfId: created.id };
     }
     this.state.selectedPropKey = propKey;
@@ -472,8 +669,8 @@ class StudioStore {
     const layer = comp.layers.find((l) => l.id === layerId);
     if (!layer) return;
     this.snapshotForUndo();
-    const prop = layer.transform[propKey];
-    prop.keyframes = prop.keyframes.filter((k) => k.id !== kfId);
+    const p = layer.transform[propKey];
+    p.keyframes = p.keyframes.filter((k) => k.id !== kfId);
     if (this.state.selectedKeyframe?.kfId === kfId) {
       this.state.selectedKeyframe = null;
     }
@@ -523,6 +720,20 @@ class StudioStore {
     if (!layer) return;
     this.snapshotForUndo();
     layer.effects = layer.effects.filter((fx) => fx.id !== fxId);
+    this.emit();
+  }
+
+  moveEffect(layerId: string, fxId: string, delta: -1 | 1): void {
+    const comp = this.getActiveComp();
+    const layer = comp.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const idx = layer.effects.findIndex((fx) => fx.id === fxId);
+    if (idx < 0) return;
+    const target = idx + delta;
+    if (target < 0 || target >= layer.effects.length) return;
+    this.snapshotForUndo();
+    const [removed] = layer.effects.splice(idx, 1);
+    layer.effects.splice(target, 0, removed);
     this.emit();
   }
 
@@ -578,7 +789,9 @@ class StudioStore {
       p.value = evaluateKeyframes(p, this.state.currentTime);
       p.keyframes = [];
     } else {
-      p.keyframes = [kf(Number(this.state.currentTime.toFixed(3)), evaluateKeyframes(p, this.state.currentTime), 'easyEase')];
+      p.keyframes = [
+        kf(Number(this.state.currentTime.toFixed(3)), evaluateKeyframes(p, this.state.currentTime), 'easyEase'),
+      ];
     }
     this.emit();
   }

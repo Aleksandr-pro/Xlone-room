@@ -1,3 +1,4 @@
+import { analyzeAudioBuffer, createBuiltInSynthBeat } from '../core/audio';
 import { createComposition } from '../core/factories';
 import { DEMO_PRESETS } from '../core/presets';
 import type { StudioProject } from '../core/types';
@@ -49,7 +50,7 @@ export class ModalManager {
         <button class="picker-tile" data-add-type="text">
           <span class="picker-badge" style="background:#ef4444">T</span>
           <strong>Text Layer</strong>
-          <small>Анимированный текст и титры</small>
+          <small>Анимированный текст и пресеты</small>
         </button>
         <button class="picker-tile" data-add-type="shape">
           <span class="picker-badge" style="background:#22c55e">★</span>
@@ -64,12 +65,12 @@ export class ModalManager {
         <button class="picker-tile" data-add-type="adjustment">
           <span class="picker-badge" style="background:#a855f7">ADJ</span>
           <strong>Adjustment Layer</strong>
-          <small>Применяет эффекты ко всем слоям ниже</small>
+          <small>Эффекты ко всем слоям ниже</small>
         </button>
         <button class="picker-tile" data-add-type="null">
           <span class="picker-badge" style="background:#f59e0b">NUL</span>
           <strong>Null Object</strong>
-          <small>Невидимый контроллер (Parenting)</small>
+          <small>Контроллер привязки (Parenting)</small>
         </button>
         <label class="picker-tile file-tile">
           <span class="picker-badge" style="background:#38bdf8">IMG</span>
@@ -77,6 +78,17 @@ export class ModalManager {
           <small>Импорт из галереи телефона</small>
           <input type="file" accept="image/*,video/*" data-media-input hidden />
         </label>
+        <label class="picker-tile file-tile">
+          <span class="picker-badge" style="background:#10b981">♪</span>
+          <strong>Audio Track</strong>
+          <small>Музыка MP3 / WAV с волной</small>
+          <input type="file" accept="audio/*" data-audio-input hidden />
+        </label>
+        <button class="picker-tile" data-add-synth-beat>
+          <span class="picker-badge" style="background:#10b981">BPM</span>
+          <strong>Synth Beat 128 BPM</strong>
+          <small>Встроенный бит для beat-анимации</small>
+        </button>
       </div>
       `,
       (body) => {
@@ -86,6 +98,36 @@ export class ModalManager {
             store.addLayer(type);
             this.close();
           });
+        });
+
+        body.querySelector('[data-add-synth-beat]')?.addEventListener('click', () => {
+          const comp = store.getActiveComp();
+          const audioData = createBuiltInSynthBeat(comp.duration, 128);
+          store.addLayer('audio', audioData.fileName, (l) => {
+            l.audioData = audioData;
+            l.outPoint = Math.min(comp.duration, audioData.duration);
+          });
+          this.close();
+        });
+
+        const audioInput = body.querySelector<HTMLInputElement>('[data-audio-input]');
+        audioInput?.addEventListener('change', () => {
+          const file = audioInput.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const dataUrl = String(reader.result ?? '');
+            if (!dataUrl) return;
+            const buf = await file.arrayBuffer();
+            const audioData = await analyzeAudioBuffer(buf, dataUrl, file.name);
+            const comp = store.getActiveComp();
+            store.addLayer('audio', file.name, (l) => {
+              l.audioData = audioData;
+              l.outPoint = Math.min(comp.duration, audioData.duration || comp.duration);
+            });
+            this.close();
+          };
+          reader.readAsDataURL(file);
         });
 
         const fileInput = body.querySelector<HTMLInputElement>('[data-media-input]');
@@ -118,7 +160,10 @@ export class ModalManager {
                 const comp = store.getActiveComp();
                 const fitScale = Math.min(
                   100,
-                  Math.round((Math.min(comp.width, comp.height) * 0.75 * 100) / Math.max(img.naturalWidth, img.naturalHeight, 1))
+                  Math.round(
+                    (Math.min(comp.width, comp.height) * 0.75 * 100) /
+                      Math.max(img.naturalWidth, img.naturalHeight, 1)
+                  )
                 );
                 store.addLayer('media', file.name, (l) => {
                   l.transform.scaleX.value = fitScale;
@@ -210,6 +255,17 @@ export class ModalManager {
   }
 
   openProjectsAndPresets(): void {
+    const state = store.getState();
+    const compsHtml = state.project.compositions
+      .map(
+        (c) => `
+      <button class="chip-btn ${c.id === state.project.activeCompId ? 'active' : ''}" data-switch-comp="${c.id}">
+        ${c.name} (${c.layers.length})
+      </button>
+    `
+      )
+      .join('');
+
     const presetsHtml = DEMO_PRESETS.map(
       (p) => `
       <button class="preset-card" data-load-preset="${p.id}">
@@ -220,14 +276,21 @@ export class ModalManager {
     ).join('');
 
     this.open(
-      'Projects & Demo Presets',
+      'Compositions, Projects & Presets',
       `
+      <div class="insp-card-title">Compositions in Project</div>
+      <div class="chip-row mb-10">
+        ${compsHtml}
+        <button class="chip-btn" data-add-comp>+ New Comp</button>
+      </div>
+      <div class="modal-divider"></div>
+      <div class="insp-card-title">Demo Templates</div>
       <div class="preset-list">
         ${presetsHtml}
       </div>
       <div class="modal-divider"></div>
       <div class="btn-row">
-        <button class="btn-ghost" data-new-blank>New Empty Comp</button>
+        <button class="btn-ghost" data-new-blank>New Empty Project</button>
         <label class="btn-ghost file-btn">
           Import .suep
           <input type="file" accept=".suep,.json,application/json" data-import-suep hidden />
@@ -236,6 +299,25 @@ export class ModalManager {
       </div>
       `,
       (body) => {
+        body.querySelectorAll<HTMLElement>('[data-switch-comp]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            store.switchComposition(btn.dataset.switchComp!);
+            this.close();
+          });
+        });
+
+        body.querySelector('[data-add-comp]')?.addEventListener('click', () => {
+          const cur = store.getActiveComp();
+          store.addComposition(
+            `Comp ${state.project.compositions.length + 1}`,
+            cur.width,
+            cur.height,
+            cur.fps,
+            cur.duration
+          );
+          this.close();
+        });
+
         body.querySelectorAll<HTMLElement>('[data-load-preset]').forEach((btn) => {
           btn.addEventListener('click', () => {
             const found = DEMO_PRESETS.find((p) => p.id === btn.dataset.loadPreset);
@@ -249,7 +331,7 @@ export class ModalManager {
         body.querySelector('[data-new-blank]')?.addEventListener('click', () => {
           const comp = createComposition('Blank Comp (9:16)', 1080, 1920, 30, 5);
           store.loadProject({
-            version: '1.0.0',
+            version: '1.1.0',
             app: 'StudioEffect(SU)',
             name: 'Untitled Project',
             activeCompId: comp.id,
@@ -286,6 +368,7 @@ export class ModalManager {
 
   openExport(): void {
     const comp = store.getActiveComp();
+    const allComps = store.getState().project.compositions;
     let abortCtrl: AbortController | null = null;
 
     this.open(
@@ -348,6 +431,7 @@ export class ModalManager {
             const res = await exportCompositionVideo(comp, {
               resolutionScale: scale,
               bitrateMbps: bitrate,
+              allCompositions: allComps,
               signal: abortCtrl.signal,
               onProgress: (p, frame, total) => {
                 fillEl.style.width = `${Math.round(p * 100)}%`;
@@ -364,7 +448,7 @@ export class ModalManager {
         });
 
         body.querySelector('[data-exp-png]')?.addEventListener('click', () => {
-          void exportFramePng(comp, store.getState().currentTime, 1);
+          void exportFramePng(comp, store.getState().currentTime, 1, allComps);
         });
         body.querySelector('[data-exp-proj]')?.addEventListener('click', () => {
           void exportProjectFile(store.getState().project);
