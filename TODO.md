@@ -30,7 +30,15 @@
 - [x] Graph Editor: интерактивные кривые скорости/значения для выбранного ключевого кадра
 - [x] Модальные окна: New Composition, Add Layer / Import Media, Export Render, Demo Presets
 
-## Фаза 4: Тестирование, сборка APK и релиз
+## Фаза 4: Тестирование, сборка APK и релиз (v1.0)
 - [x] Написать юнит-тесты для интерполяции, кривых, выражений и стора (`vitest`)
-- [ ] Собрать и проверить реальный `.apk` через GitHub Actions
-- [ ] Опубликовать релиз и выдать прямую ссылку на скачивание `StudioEffect-SU.apk`
+- [x] Собрать и проверить реальный `.apk` через GitHub Actions
+- [x] Опубликовать релиз и выдать прямую ссылку на скачивание `StudioEffect-SU.apk`
+
+## Фаза 5: Продвинутый композитинг и аудио-реактивность (v1.1)
+- [x] Аудио-дорожки (импорт MP3/WAV + встроенный Synth Beat 128 BPM), отрисовка волны на таймлайне
+- [x] Реакция на бит: переменная `audioAmp` в Expressions + генератор `Convert Audio to Keyframes`
+- [x] Маски слоёв (`Rectangle` / `Ellipse`, `Feather`, `Inverted`) и `Track Mattes` (`Alpha Matte` / `Alpha Inverted`)
+- [x] Вложенные композиции (`Pre-Compose` + переключатель композиций проекта)
+- [x] Новые 5 эффектов (`Radial Zoom Blur`, `Directional Blur`, `Wave Warp`, `Tint / Colorize`, `Exposure & Gamma`) + сортировка стека эффектов
+- [x] Пресеты анимации текста (`Typewriter`, `Pop In`, `Slide Up`, `Neon Pulse`), магнитный Snap к центру и зум вьюпорта

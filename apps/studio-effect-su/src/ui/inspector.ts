@@ -1,7 +1,7 @@
 import { evaluateExpression } from '../core/expressions';
 import { evaluateProp } from '../core/interpolation';
-import type { BlendMode, ShapeKind, TransformPropKey } from '../core/types';
-import { store } from '../state/store';
+import type { BlendMode, ShapeKind, TrackMatteMode, TransformPropKey } from '../core/types';
+import { type TextAnimPreset, store } from '../state/store';
 import { ICONS } from './icons';
 
 const BLEND_MODES: BlendMode[] = [
@@ -49,7 +49,6 @@ export function mountInspector(container: HTMLElement): void {
     const layerIndex = comp.layers.findIndex((l) => l.id === layer.id);
     const snapTol = 0.5 / comp.fps;
 
-    // Parent candidates (exclude self and descendants to prevent cycles)
     const parentOptions = comp.layers
       .filter((l) => l.id !== layer.id && l.parentId !== layer.id)
       .map(
@@ -62,11 +61,15 @@ export function mountInspector(container: HTMLElement): void {
       (m) => `<option value="${m}" ${layer.blendMode === m ? 'selected' : ''}>${m.toUpperCase()}</option>`
     ).join('');
 
+    const matteVal: TrackMatteMode = layer.trackMatte ?? 'none';
+    const matteAboveName = layerIndex > 0 ? comp.layers[layerIndex - 1].name : 'Нет слоя выше';
+
     const transformRows = TRANSFORM_FIELDS.map((f) => {
       const prop = layer.transform[f.key];
-      const val = Math.round(
-        evaluateProp(prop, state.currentTime, layerIndex, comp, `${layer.id}:${f.key}`) * 10
-      ) / 10;
+      const val =
+        Math.round(
+          evaluateProp(prop, state.currentTime, layerIndex, comp, `${layer.id}:${f.key}`) * 10
+        ) / 10;
       const hasKfs = prop.keyframes.length > 0;
       const atKf = prop.keyframes.some((k) => Math.abs(k.time - state.currentTime) <= snapTol);
       const hasExpr = Boolean(prop.expression?.trim());
@@ -91,9 +94,14 @@ export function mountInspector(container: HTMLElement): void {
       const td = layer.textData;
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Text Properties</div>
-          <label class="field-label">Text Content</label>
+          <div class="insp-card-title">Text Properties & Presets</div>
           <textarea class="ae-textarea" data-text-field="text" rows="2">${escapeHtml(td.text)}</textarea>
+          <div class="chip-row mt-6 mb-10">
+            <button class="chip-btn" data-text-preset="typewriter">Typewriter</button>
+            <button class="chip-btn" data-text-preset="popIn">Pop In</button>
+            <button class="chip-btn" data-text-preset="slideUp">Slide Up</button>
+            <button class="chip-btn" data-text-preset="neonPulse">Neon Pulse</button>
+          </div>
           <div class="grid-2">
             <div>
               <label class="field-label">Size (px)</label>
@@ -195,7 +203,102 @@ export function mountInspector(container: HTMLElement): void {
           </div>
         </div>
       `;
+    } else if (layer.type === 'audio' && layer.audioData) {
+      const ad = layer.audioData;
+      const targetLayers = comp.layers.filter((l) => l.type !== 'audio' && l.type !== 'adjustment');
+      typeSectionHtml = `
+        <div class="insp-card">
+          <div class="insp-card-title">Audio & Beat Reactor</div>
+          <div class="field-label">File: <b>${escapeHtml(ad.fileName)}</b> (${ad.duration.toFixed(1)}s)</div>
+          <div class="mt-6">
+            <label class="field-label">Volume: ${ad.volume}%</label>
+            <input type="range" class="ae-slider" data-audio-vol min="0" max="100" value="${ad.volume}" />
+          </div>
+          <div class="modal-divider"></div>
+          <div class="insp-card-title">Convert Audio to Keyframes</div>
+          <div class="grid-2">
+            <div>
+              <label class="field-label">Target Layer</label>
+              <select class="ae-select" data-beat-target>
+                ${targetLayers.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Property</label>
+              <select class="ae-select" data-beat-prop>
+                <option value="scaleX">Scale X (100 + beat)</option>
+                <option value="scaleY">Scale Y (100 + beat)</option>
+                <option value="rotation">Rotation (0 + beat)</option>
+                <option value="opacity">Opacity (40 + beat)</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn-primary btn-sm mt-8" data-beat-generate>Generate Beat Keyframes</button>
+          <div class="export-note">Совет: в Expressions также доступна переменная <code>audioAmp</code> (например: <code>100 + audioAmp * 0.5</code>).</div>
+        </div>
+      `;
+    } else if (layer.type === 'precomp' && layer.precompData) {
+      const targetComp = state.project.compositions.find((c) => c.id === layer.precompData!.compId);
+      typeSectionHtml = `
+        <div class="insp-card">
+          <div class="insp-card-title">Nested Pre-Composition</div>
+          <div class="field-label">Source: <b>${escapeHtml(targetComp?.name ?? 'Unknown')}</b></div>
+          ${
+            targetComp
+              ? `<button class="btn-primary btn-sm mt-6" data-open-precomp="${targetComp.id}">Open Pre-Comp Timeline</button>`
+              : ''
+          }
+        </div>
+      `;
     }
+
+    const mask = layer.mask;
+    const maskSectionHtml =
+      layer.type !== 'audio' && layer.type !== 'adjustment' && layer.type !== 'null'
+        ? `
+        <div class="insp-card">
+          <div class="insp-header-row">
+            <span class="insp-card-title" style="margin:0">Layer Mask</span>
+            <button class="btn-ghost btn-sm" data-mask-toggle>${mask?.enabled ? 'Mask ON' : '+ Add / Enable Mask'}</button>
+          </div>
+          ${
+            mask?.enabled
+              ? `
+            <div class="grid-2 mt-8">
+              <div>
+                <label class="field-label">Shape</label>
+                <select class="ae-select" data-mask-shape>
+                  <option value="rect" ${mask.shape === 'rect' ? 'selected' : ''}>Rectangle</option>
+                  <option value="ellipse" ${mask.shape === 'ellipse' ? 'selected' : ''}>Ellipse</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">Inverted</label>
+                <button class="btn-ghost btn-sm" data-mask-invert>${mask.inverted ? 'Inverted' : 'Normal'}</button>
+              </div>
+              <div>
+                <label class="field-label">Width (px)</label>
+                <input type="number" class="ae-input" data-mask-num="width" value="${mask.width}" min="10" max="4000" />
+              </div>
+              <div>
+                <label class="field-label">Height (px)</label>
+                <input type="number" class="ae-input" data-mask-num="height" value="${mask.height}" min="10" max="4000" />
+              </div>
+              <div>
+                <label class="field-label">Feather (px)</label>
+                <input type="number" class="ae-input" data-mask-num="feather" value="${mask.feather}" min="0" max="150" />
+              </div>
+              <div>
+                <label class="field-label">Opacity (%)</label>
+                <input type="number" class="ae-input" data-mask-num="opacity" value="${mask.opacity}" min="0" max="100" />
+              </div>
+            </div>
+          `
+              : ''
+          }
+        </div>
+      `
+        : '';
 
     const exprCode = layer.transform[activeExprProp].expression ?? '';
     const exprCheck = exprCode.trim()
@@ -206,6 +309,7 @@ export function mountInspector(container: HTMLElement): void {
           fps: comp.fps,
           duration: comp.duration,
           seed: 1,
+          audioAmp: 50,
         })
       : null;
 
@@ -233,11 +337,30 @@ export function mountInspector(container: HTMLElement): void {
                 ${parentOptions}
               </select>
             </div>
+            <div>
+              <label class="field-label">Track Matte (${escapeHtml(matteAboveName)})</label>
+              <select class="ae-select" data-matte-select>
+                <option value="none" ${matteVal === 'none' ? 'selected' : ''}>None</option>
+                <option value="alpha" ${matteVal === 'alpha' ? 'selected' : ''}>Alpha Matte</option>
+                <option value="alphaInverted" ${matteVal === 'alphaInverted' ? 'selected' : ''}>Alpha Inverted</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Layer Actions</label>
+              <div class="btn-row">
+                <button class="btn-ghost btn-sm" data-center-anchor>Center Anchor</button>
+                <button class="btn-ghost btn-sm" data-precomp-layer>Pre-Compose</button>
+              </div>
+            </div>
           </div>
         </div>
 
         ${typeSectionHtml}
+        ${maskSectionHtml}
 
+        ${
+          layer.type !== 'audio'
+            ? `
         <div class="insp-card">
           <div class="insp-card-title">Transform</div>
           ${transformRows}
@@ -255,15 +378,18 @@ export function mountInspector(container: HTMLElement): void {
               ${exprCode.trim() ? (exprCheck?.error ? escapeHtml(exprCheck.error) : `= ${exprCheck?.value.toFixed(1)}`) : 'Inactive'}
             </span>
           </div>
-          <input type="text" class="ae-input mono mt-6" data-expr-input placeholder="Напр: wiggle(4, 25) или time * 90" value="${escapeHtml(exprCode)}" />
+          <input type="text" class="ae-input mono mt-6" data-expr-input placeholder="Напр: wiggle(4, 25) или 100 + audioAmp * 0.5" value="${escapeHtml(exprCode)}" />
           <div class="chip-row mt-6">
             <button class="chip-btn" data-expr-preset="wiggle(4, 25)">wiggle(4, 25)</button>
             <button class="chip-btn" data-expr-preset="time * 90">time * 90</button>
+            <button class="chip-btn" data-expr-preset="100 + audioAmp * 0.5">audioAmp beat</button>
             <button class="chip-btn" data-expr-preset="value + Math.sin(time * 4) * 80">sin wave</button>
             <button class="chip-btn" data-expr-preset='loopOut("pingpong")'>loopOut</button>
             <button class="chip-btn danger" data-expr-preset="">Clear</button>
           </div>
-        </div>
+        </div>`
+            : ''
+        }
       </div>
     `;
 
@@ -280,6 +406,8 @@ export function mountInspector(container: HTMLElement): void {
     container.querySelector('[data-layer-down]')?.addEventListener('click', () => store.moveLayerOrder(layerId, 1));
     container.querySelector('[data-layer-dup]')?.addEventListener('click', () => store.duplicateLayer(layerId));
     container.querySelector('[data-layer-del]')?.addEventListener('click', () => store.deleteLayer(layerId));
+    container.querySelector('[data-center-anchor]')?.addEventListener('click', () => store.centerAnchorPoint(layerId));
+    container.querySelector('[data-precomp-layer]')?.addEventListener('click', () => store.precomposeLayer(layerId));
 
     container.querySelector<HTMLSelectElement>('[data-blend-select]')?.addEventListener('change', (e) => {
       const mode = (e.target as HTMLSelectElement).value as BlendMode;
@@ -289,6 +417,52 @@ export function mountInspector(container: HTMLElement): void {
     container.querySelector<HTMLSelectElement>('[data-parent-select]')?.addEventListener('change', (e) => {
       const pid = (e.target as HTMLSelectElement).value || null;
       store.updateLayer(layerId, (l) => (l.parentId = pid));
+    });
+
+    container.querySelector<HTMLSelectElement>('[data-matte-select]')?.addEventListener('change', (e) => {
+      const m = (e.target as HTMLSelectElement).value as TrackMatteMode;
+      store.updateLayer(layerId, (l) => (l.trackMatte = m));
+    });
+
+    container.querySelector('[data-mask-toggle]')?.addEventListener('click', () => store.toggleMask(layerId));
+    container.querySelector<HTMLSelectElement>('[data-mask-shape]')?.addEventListener('change', (e) => {
+      store.updateMask(layerId, { shape: (e.target as HTMLSelectElement).value as 'rect' | 'ellipse' });
+    });
+    container.querySelector('[data-mask-invert]')?.addEventListener('click', () => {
+      const l = store.getSelectedLayer();
+      if (l?.mask) store.updateMask(layerId, { inverted: !l.mask.inverted });
+    });
+    container.querySelectorAll<HTMLInputElement>('[data-mask-num]').forEach((inp) => {
+      const field = inp.dataset.maskNum! as 'width' | 'height' | 'feather' | 'opacity';
+      inp.addEventListener('change', () => {
+        store.updateMask(layerId, { [field]: Number(inp.value) });
+      });
+    });
+
+    // Audio
+    container.querySelector<HTMLInputElement>('[data-audio-vol]')?.addEventListener('input', (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      store.updateLayer(
+        layerId,
+        (l) => {
+          if (l.audioData) l.audioData.volume = v;
+        },
+        true
+      );
+    });
+    container.querySelector('[data-beat-generate]')?.addEventListener('click', () => {
+      const targetId = container.querySelector<HTMLSelectElement>('[data-beat-target]')?.value;
+      const propKey = (container.querySelector<HTMLSelectElement>('[data-beat-prop]')?.value ?? 'scaleX') as TransformPropKey;
+      if (!targetId) return;
+      const base = propKey === 'scaleX' || propKey === 'scaleY' ? 100 : propKey === 'opacity' ? 40 : 0;
+      const mult = propKey === 'rotation' ? 28 : 45;
+      store.generateAudioKeyframes(layerId, targetId, propKey, base, mult);
+    });
+
+    // Precomp jump
+    container.querySelector<HTMLElement>('[data-open-precomp]')?.addEventListener('click', (e) => {
+      const cid = (e.currentTarget as HTMLElement).dataset.openPrecomp!;
+      store.switchComposition(cid);
     });
 
     // Transform controls
@@ -322,7 +496,12 @@ export function mountInspector(container: HTMLElement): void {
       });
     });
 
-    // Text fields
+    // Text fields & presets
+    container.querySelectorAll<HTMLElement>('[data-text-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        store.applyTextPreset(layerId, btn.dataset.textPreset as TextAnimPreset);
+      });
+    });
     container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-text-field]').forEach((el) => {
       const field = el.dataset.textField! as 'text' | 'color' | 'strokeColor';
       el.addEventListener('change', () => {

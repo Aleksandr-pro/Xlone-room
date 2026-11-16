@@ -50,13 +50,14 @@ function blobToBase64(blob: Blob): Promise<string> {
 export async function exportFramePng(
   comp: Composition,
   time: number,
-  scale = 1
+  scale = 1,
+  allCompositions?: Composition[]
 ): Promise<void> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(comp.width * scale));
   canvas.height = Math.max(1, Math.round(comp.height * scale));
   const ctx = canvas.getContext('2d')!;
-  renderComposition(ctx, comp, time, { renderScale: scale });
+  renderComposition(ctx, comp, time, { renderScale: scale, allCompositions });
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -80,6 +81,7 @@ export interface VideoExportOptions {
   resolutionScale: number; // 0.5 = half, 1 = full
   fps?: number;
   bitrateMbps?: number;
+  allCompositions?: Composition[];
   onProgress?: (progress01: number, currentFrame: number, totalFrames: number) => void;
   signal?: AbortSignal;
 }
@@ -142,7 +144,10 @@ export async function exportCompositionVideo(
     }
 
     const t = frame / fps;
-    renderComposition(ctx, comp, t, { renderScale: width / comp.width });
+    renderComposition(ctx, comp, t, {
+      renderScale: width / comp.width,
+      allCompositions: options.allCompositions,
+    });
     options.onProgress?.((frame + 1) / totalFrames, frame + 1, totalFrames);
 
     await new Promise((r) => setTimeout(r, frameDelayMs));

@@ -50,6 +50,8 @@ export function mountEffectsPanel(container: HTMLElement): void {
                   <button class="fx-toggle ${fx.enabled ? 'on' : ''}" data-fx-toggle="${fx.id}">fx</button>
                   <span class="fx-name">${fx.name}</span>
                   <span class="fx-cat">${def.category}</span>
+                  <button class="icon-btn" data-fx-up="${fx.id}" title="Move Effect Up">${ICONS.up}</button>
+                  <button class="icon-btn" data-fx-down="${fx.id}" title="Move Effect Down">${ICONS.down}</button>
                   <button class="icon-btn danger" data-fx-del="${fx.id}" title="Remove Effect">${ICONS.trash}</button>
                 </div>
                 <div class="fx-params-body">${paramsHtml}</div>
@@ -98,6 +100,14 @@ export function mountEffectsPanel(container: HTMLElement): void {
 
     container.querySelectorAll<HTMLElement>('[data-fx-toggle]').forEach((btn) => {
       btn.addEventListener('click', () => store.toggleEffectEnabled(layerId, btn.dataset.fxToggle!));
+    });
+
+    container.querySelectorAll<HTMLElement>('[data-fx-up]').forEach((btn) => {
+      btn.addEventListener('click', () => store.moveEffect(layerId, btn.dataset.fxUp!, -1));
+    });
+
+    container.querySelectorAll<HTMLElement>('[data-fx-down]').forEach((btn) => {
+      btn.addEventListener('click', () => store.moveEffect(layerId, btn.dataset.fxDown!, 1));
     });
 
     container.querySelectorAll<HTMLElement>('[data-fx-del]').forEach((btn) => {

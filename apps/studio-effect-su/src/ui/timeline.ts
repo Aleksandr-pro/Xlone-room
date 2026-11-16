@@ -24,6 +24,10 @@ function typeTag(layer: Layer): string {
       return '■';
     case 'media':
       return 'IMG';
+    case 'audio':
+      return '♪';
+    case 'precomp':
+      return 'CMP';
     case 'adjustment':
       return 'ADJ';
     case 'null':
@@ -60,6 +64,8 @@ export function mountTimeline(
     comp.layers.forEach((layer, layerIndex) => {
       const isSelected = layer.id === state.selectedLayerId;
       const fxCount = layer.effects.filter((e) => e.enabled).length;
+      const hasMask = Boolean(layer.mask?.enabled);
+      const hasMatte = Boolean(layer.trackMatte && layer.trackMatte !== 'none');
 
       leftRowsHtml += `
         <div class="tl-layer-row ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
@@ -70,6 +76,8 @@ export function mountTimeline(
           <span class="tl-type-badge" style="border-color:${layer.colorLabel}">${typeTag(layer)}</span>
           <span class="tl-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
           <div class="tl-layer-flags">
+            ${hasMask ? `<span class="tl-mini-pill mask" title="Mask Active">M</span>` : ''}
+            ${hasMatte ? `<span class="tl-mini-pill matte" title="Track Matte">MAT</span>` : ''}
             ${fxCount > 0 ? `<span class="tl-fx-pill" title="Active Effects">fx${fxCount}</span>` : ''}
             <button class="tl-flag-btn ${layer.visible ? 'on' : ''}" data-toggle-vis="${layer.id}" title="Visibility">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
             <button class="tl-flag-btn solo ${layer.solo ? 'on' : ''}" data-toggle-solo="${layer.id}" title="Solo">S</button>
@@ -80,9 +88,17 @@ export function mountTimeline(
 
       const barLeft = Math.round(layer.inPoint * zoom);
       const barWidth = Math.max(10, Math.round((layer.outPoint - layer.inPoint) * zoom));
+      const waveformHtml =
+        layer.type === 'audio' && layer.audioData?.waveform?.length
+          ? `<div class="tl-waveform">${layer.audioData.waveform
+              .map((v) => `<span style="height:${Math.max(12, Math.round(v * 100))}%"></span>`)
+              .join('')}</div>`
+          : '';
+
       rightRowsHtml += `
         <div class="tl-track-row ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
           <div class="tl-layer-bar" data-bar-layer="${layer.id}" style="left:${barLeft}px;width:${barWidth}px;background:${layer.colorLabel}33;border-color:${layer.colorLabel}">
+            ${waveformHtml}
             <div class="tl-trim-handle left" data-trim="in" data-layer="${layer.id}"></div>
             <span class="tl-bar-label">${escapeHtml(layer.name)}</span>
             <div class="tl-trim-handle right" data-trim="out" data-layer="${layer.id}"></div>
