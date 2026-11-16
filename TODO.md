@@ -1,0 +1,36 @@
+# TODO List — Xlone-room & StudioEffect(SU)
+
+## Фаза 0: Инфраструктура Xlone-room и сборка APK
+- [x] Спроектировать структуру монорепозитория для клонов Windows -> Android (`apps/*`)
+- [x] Написать `README.md`, `PLAN.md` и `TODO.md` с фокусом на нативные `.apk`
+- [x] Настроить нативный Android-проект (`apps/studio-effect-su/android/`) без лишнего веса (< 500 KB APK)
+- [x] Настроить GitHub Actions для автоматической сборки `.apk` и публикации прямой ссылки в GitHub Releases
+
+## Фаза 1: Ядро анимации StudioEffect(SU) (`src/core/`)
+- [x] Описать типы данных (`Composition`, `Layer`, `Keyframe`, `EffectInstance`, `Project`)
+- [x] Реализовать интерполяцию ключевых кадров (`Linear`, `Easy Ease`, `Ease In`, `Ease Out`, `Hold`, Custom Bezier)
+- [x] Реализовать систему иерархии слоёв (`Parenting` / расчёт мировых трансформаций)
+- [x] Реализовать мини-движок AE Expressions (`time`, `index`, `wiggle()`, `loopOut()`, `Math.*`)
+- [x] Реализовать систему `Undo / Redo`
+- [x] Создать стартовые демо-проекты (Neon Intro, AMV Motion Edit, Kinetic Typography)
+
+## Фаза 2: Движок рендеринга и эффектов (`src/engine/`)
+- [x] Написать рендерер композиций (`Text`, `Shape`, `Solid`, `Media`, `Null`, `Adjustment Layer`)
+- [x] Поддержать все основные Blending Modes (`Normal`, `Add`, `Screen`, `Multiply`, `Overlay`, `Difference`, `Lighten`, `Darken`)
+- [x] Реализовать интерактивный Transform Gizmo на канвасе (тач-перетаскивание, масштаб, поворот, Anchor Point)
+- [x] Реализовать стек эффектов (`Deep Glow`, `Gaussian Blur`, `RGB Split`, `Glitch`, `Motion Tile`, `Drop Shadow`, `Hue/Sat`, `Brightness/Contrast`, `Vignette`, `Pixelate`, `Wiggle Shake`)
+- [x] Реализовать рендер и экспорт видео (`WebM/MP4`), кадра (`PNG`) и проекта (`.suep`) с поддержкой нативного сохранения на Android (`AndroidBridge`)
+
+## Фаза 3: Мобильный интерфейс в стиле After Effects (`src/ui/`)
+- [x] Адаптивная тёмная тема AE (смартфон портрет + ландшафт + планшет)
+- [x] Viewport с транспортом, таймкодом, сеткой Safe Margins и прозрачностью
+- [x] Timeline: слои, полосы In/Out, линейка, скраббинг Playhead (CTI), ромбы ключевых кадров
+- [x] Inspector: Transform со секундомерами (`Stopwatch`), настройки текста/фигур, Parenting, Expressions
+- [x] Effects Panel: каталог эффектов + настройка параметров
+- [x] Graph Editor: интерактивные кривые скорости/значения для выбранного ключевого кадра
+- [x] Модальные окна: New Composition, Add Layer / Import Media, Export Render, Demo Presets
+
+## Фаза 4: Тестирование, сборка APK и релиз
+- [x] Написать юнит-тесты для интерполяции, кривых, выражений и стора (`vitest`)
+- [ ] Собрать и проверить реальный `.apk` через GitHub Actions
+- [ ] Опубликовать релиз и выдать прямую ссылку на скачивание `StudioEffect-SU.apk`
