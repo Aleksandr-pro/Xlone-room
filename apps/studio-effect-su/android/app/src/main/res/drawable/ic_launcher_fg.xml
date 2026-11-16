@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#18182F"
+        android:pathData="M18,0h72a18,18 0 0 1 18,18v72a18,18 0 0 1 -18,18h-72a18,18 0 0 1 -18,-18v-72a18,18 0 0 1 18,-18z" />
+    <!-- Outer neon border -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M22,8h64a14,14 0 0 1 14,14v64a14,14 0 0 1 -14,14h-64a14,14 0 0 1 -14,-14v-64a14,14 0 0 1 14,-14z"
+        android:strokeWidth="3.5"
+        android:strokeColor="#60A5FA" />
+    <!-- Keyframe diamond -->
+    <path
+        android:fillColor="#F5B041"
+        android:pathData="M54,18 L61,25 L54,32 L47,25 Z" />
+    <!-- Stylized S -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,43 L34,43 C30,43 28,45 28,49 L28,53 C28,57 30,59 34,59 L43,59 L43,66 L28,66 L28,72 L45,72 C49,72 51,70 51,66 L51,58 C51,54 49,52 45,52 L36,52 L36,49 L48,49 Z" />
+    <!-- Stylized U -->
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M57,43 L65,43 L65,65 L73,65 L73,43 L81,43 L81,66 C81,70 79,72 75,72 L63,72 C59,72 57,70 57,66 Z" />
+</vector>

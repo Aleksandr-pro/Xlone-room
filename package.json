@@ -1,0 +1,16 @@
+{
+  "name": "xlone-room",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Xlone-room: Ultra-lightweight mobile/Android clones of Windows desktop programs",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=apps/studio-effect-su run dev",
+    "build": "npm --workspace=apps/studio-effect-su run build",
+    "preview": "npm --workspace=apps/studio-effect-su run preview",
+    "test": "npm --workspace=apps/studio-effect-su run test",
+    "typecheck": "npm --workspace=apps/studio-effect-su run typecheck"
+  }
+}

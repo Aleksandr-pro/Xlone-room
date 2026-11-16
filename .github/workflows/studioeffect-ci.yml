@@ -1,0 +1,88 @@
+name: Build StudioEffect(SU) APK
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies & run tests
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Prepare Android web assets
+        run: |
+          mkdir -p apps/studio-effect-su/android/app/src/main/assets/public
+          cp -r apps/studio-effect-su/dist/* apps/studio-effect-su/android/app/src/main/assets/public/
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Generate signing keystore & build release APK
+        working-directory: apps/studio-effect-su/android
+        env:
+          KEYSTORE_PATH: /tmp/xloneroom-release.jks
+          KEYSTORE_PASS: xloneroom2026
+          KEY_ALIAS: studioeffect
+          KEY_PASS: xloneroom2026
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASS" \
+            -alias "$KEY_ALIAS" \
+            -keypass "$KEY_PASS" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Xlone-room, O=Xlone-room, C=KZ"
+          gradle assembleRelease --no-daemon
+
+      - name: Package & verify APK size
+        run: |
+          APK_SRC="apps/studio-effect-su/android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK_SRC"
+          cp "$APK_SRC" StudioEffect-SU.apk
+          ls -lh StudioEffect-SU.apk
+          SIZE_KB=$(du -sk StudioEffect-SU.apk | cut -f1)
+          echo "APK size: ${SIZE_KB} KB"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudioEffect-SU-apk
+          path: StudioEffect-SU.apk
+
+      - name: Publish GitHub Release with direct APK link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="studioeffect-v1.0.${{ github.run_number }}"
+          SIZE_H=$(du -sh StudioEffect-SU.apk | cut -f1)
+          gh release create "$TAG" StudioEffect-SU.apk \
+            --target "${{ github.sha }}" \
+            --title "StudioEffect(SU) v1.0.${{ github.run_number }}" \
+            --notes "Нативный Android APK (${SIZE_H}) — клон After Effects из проекта Xlone-room." \
+            --latest
