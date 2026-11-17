@@ -10,9 +10,11 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
-import android.view.View
+import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -20,6 +22,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.Toast
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -28,6 +31,7 @@ import java.io.InputStream
 
 class MainActivity : Activity() {
 
+    private lateinit var rootContainer: FrameLayout
     private lateinit var webView: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
@@ -42,11 +46,47 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        webView = WebView(this)
-        webView.setBackgroundColor(0xFF15171C.toInt())
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        rootContainer = FrameLayout(this)
+        rootContainer.setBackgroundColor(0xFF17181D.toInt())
 
-        val settings = webView.settings
+        // Respect system Status Bar and Navigation Bar insets (essential on Android 15 edge-to-edge)
+        rootContainer.setOnApplyWindowInsetsListener { v, insets ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sysBars = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                v.setPadding(sysBars.left, sysBars.top, sysBars.right, sysBars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                v.setPadding(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+
+        webView = createConfiguredWebView()
+        rootContainer.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        setContentView(rootContainer)
+        rootContainer.requestApplyInsets()
+        webView.loadUrl(BASE_URL)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createConfiguredWebView(): WebView {
+        val wv = WebView(this)
+        wv.setBackgroundColor(0xFF17181D.toInt())
+
+        val settings = wv.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
@@ -57,9 +97,9 @@ class MainActivity : Activity() {
         settings.loadWithOverviewMode = true
         settings.setSupportZoom(false)
 
-        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+        wv.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
 
-        webView.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -89,9 +129,28 @@ class MainActivity : Activity() {
                     )
                 }
             }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: RenderProcessGoneDetail?
+            ): Boolean {
+                // Recover gracefully if WebView renderer dies instead of leaving a white sad-tab screen
+                rootContainer.removeView(webView)
+                webView.destroy()
+                webView = createConfiguredWebView()
+                rootContainer.addView(
+                    webView,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                )
+                webView.loadUrl(BASE_URL)
+                return true
+            }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
+        wv.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -117,9 +176,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-
-        setContentView(webView)
-        webView.loadUrl(BASE_URL)
+        return wv
     }
 
     @Deprecated("Deprecated in Java")
@@ -226,6 +283,6 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
-        fun getAppVersion(): String = "1.0.0"
+        fun getAppVersion(): String = "1.1.1"
     }
 }

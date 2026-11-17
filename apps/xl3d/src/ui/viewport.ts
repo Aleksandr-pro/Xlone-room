@@ -41,8 +41,12 @@ export function mountViewport(
     </div>
   `;
 
+  const vpWrap = container.querySelector('.vp-wrap') as HTMLElement;
   const canvas = container.querySelector('.vp-canvas') as HTMLCanvasElement;
-  const ctx = canvas.getContext('2d')!;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
   const statsEl = container.querySelector('#vp-stats') as HTMLElement;
   const modesEl = container.querySelector('#vp-modes') as HTMLElement;
   const contextBarEl = container.querySelector('#vp-context-bar') as HTMLElement;
@@ -112,29 +116,42 @@ export function mountViewport(
   }
 
   function draw(): void {
-    const rect = canvas.getBoundingClientRect();
+    if (!ctx) return;
+    const rect = vpWrap.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.max(240, Math.floor(rect.width));
-    const h = Math.max(220, Math.floor(rect.height));
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
+    const cssW = vpWrap.clientWidth || rect.width || 320;
+    const cssH = vpWrap.clientHeight || rect.height || 240;
+    const w = Math.min(2048, Math.max(240, Math.floor(cssW)));
+    const h = Math.min(2048, Math.max(160, Math.floor(cssH)));
+    const targetW = Math.min(2560, Math.floor(w * dpr));
+    const targetH = Math.min(2560, Math.floor(h * dpr));
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const stats = renderViewport3D(
-      ctx,
-      w,
-      h,
-      store.scene,
-      store.camera,
-      store.mode,
-      store.paint,
-      store.showOverlays,
-      false,
-      brushOverlay
-    );
-    const active = store.getActiveObject();
-    statsEl.textContent = `${store.scene.render.engine.toUpperCase()} · ${store.scene.render.colorTransform.toUpperCase()} · ${active ? active.name : '—'} · ${stats.verticesCount}v / ${stats.trisDrawn}f`;
+    try {
+      const stats = renderViewport3D(
+        ctx,
+        w,
+        h,
+        store.scene,
+        store.camera,
+        store.mode,
+        store.paint,
+        store.showOverlays,
+        false,
+        brushOverlay
+      );
+      const active = store.getActiveObject();
+      statsEl.textContent = `${store.scene.render.engine.toUpperCase()} · ${store.scene.render.colorTransform.toUpperCase()} · ${active ? active.name : '—'} · ${stats.verticesCount}v / ${stats.trisDrawn}f`;
+    } catch (err) {
+      ctx.fillStyle = '#181b22';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#fca5a5';
+      ctx.font = '600 12px sans-serif';
+      ctx.fillText(`Render fallback: ${String(err)}`, 14, 28);
+    }
   }
 
   renderPills();
@@ -336,8 +353,8 @@ export function mountViewport(
     store.zoomCamera(e.deltaY > 0 ? 1.1 : 0.9);
   }, { passive: false });
 
-  const ro = new ResizeObserver(() => draw());
-  ro.observe(canvas);
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => draw()) : null;
+  ro?.observe(vpWrap);
 
   const unsub1 = store.subscribe(() => {
     renderPills();
@@ -346,7 +363,7 @@ export function mountViewport(
   const unsub2 = store.subscribeViewport(() => draw());
 
   return () => {
-    ro.disconnect();
+    ro?.disconnect();
     unsub1();
     unsub2();
   };

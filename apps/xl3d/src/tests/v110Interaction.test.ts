@@ -11,7 +11,7 @@ import {
   translateSelection,
 } from '../engine/editOps';
 import { createDefaultXL3DScene, createSceneObject } from '../engine/primitives';
-import { pickSceneAtScreen } from '../engine/renderer3d';
+import { pickSceneAtScreen, renderViewport3D } from '../engine/renderer3d';
 import { applySculptStroke } from '../engine/sculpt';
 import { XL3DStore } from '../state/xl3dStore';
 
@@ -151,5 +151,45 @@ describe('XL3D v1.1.0 Front-Face Raycasting, Sculpting & Camera-Space Editing', 
     const ok = s.loadProjectJson(json);
     expect(ok).toBe(true);
     expect(s.scene.vse.clips.length).toBe(beforeClips + 1);
+  });
+
+  it('renders default 3D viewport safely and rejects corrupted JSON saves', () => {
+    const s = new XL3DStore();
+    expect(s.loadProjectJson('{broken')).toBe(false);
+    expect(s.loadProjectJson('{}')).toBe(false);
+
+    const noop = () => {};
+    const fakeGrad = { addColorStop: noop };
+    const fakeCtx = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      lineCap: 'round',
+      font: '',
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+      save: noop,
+      restore: noop,
+      beginPath: noop,
+      closePath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      arc: noop,
+      ellipse: noop,
+      roundRect: noop,
+      fill: noop,
+      stroke: noop,
+      fillRect: noop,
+      strokeRect: noop,
+      fillText: noop,
+      setLineDash: noop,
+      createLinearGradient: () => fakeGrad,
+      createRadialGradient: () => fakeGrad,
+    } as unknown as CanvasRenderingContext2D;
+
+    const stats = renderViewport3D(fakeCtx, 400, 320, s.scene, s.camera, 'object', s.paint, true, false, null);
+    expect(stats.objectsDrawn).toBeGreaterThan(0);
+    expect(stats.trisDrawn).toBeGreaterThan(0);
+    expect(stats.verticesCount).toBeGreaterThan(0);
   });
 });

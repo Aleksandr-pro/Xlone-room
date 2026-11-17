@@ -125,8 +125,19 @@ export class XL3DStore {
     try {
       const raw = localStorage.getItem(AUTOSAVE_KEY);
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as XL3DScene;
-      return parsed && Array.isArray(parsed.objects) ? parsed : null;
+      const parsed = JSON.parse(raw) as Partial<XL3DScene>;
+      if (!parsed || !Array.isArray(parsed.objects) || parsed.objects.length === 0) return null;
+      const def = createDefaultXL3DScene();
+      return {
+        ...def,
+        ...parsed,
+        render: { ...def.render, ...(parsed.render ?? {}) },
+        world: { ...def.world, ...(parsed.world ?? {}) },
+        vse: { ...def.vse, ...(parsed.vse ?? {}) },
+        cursor3D: parsed.cursor3D ?? def.cursor3D,
+        materials: Array.isArray(parsed.materials) && parsed.materials.length > 0 ? parsed.materials : def.materials,
+        nodeGraphs: Array.isArray(parsed.nodeGraphs) && parsed.nodeGraphs.length > 0 ? parsed.nodeGraphs : def.nodeGraphs,
+      };
     } catch {
       return null;
     }
