@@ -79,10 +79,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="studioeffect-v1.2.${{ github.run_number }}"
+          TAG="studioeffect-v1.3.${{ github.run_number }}"
           SIZE_H=$(du -sh StudioEffect-SU.apk | cut -f1)
           gh release create "$TAG" StudioEffect-SU.apk \
             --target "${{ github.sha }}" \
-            --title "StudioEffect(SU) v1.2.${{ github.run_number }}" \
-            --notes "Нативный Android APK (${SIZE_H}) — клон After Effects из проекта Xlone-room (3D Layers X/Y/Z, Split Layer, Markers, Audio Export Mix, 20 VFX)." \
+            --title "StudioEffect(SU) v1.3.${{ github.run_number }}" \
+            --notes "Нативный Android APK (${SIZE_H}) — CapCut-style мобильный интерфейс + весь функционал After Effects (RU/EN)." \
             --latest

@@ -26,24 +26,29 @@ export function mountViewport(container: HTMLElement): void {
           <span class="hud-badge" data-comp-badge>1080×1920 • 30fps</span>
           <button class="hud-badge hud-btn" data-vp-zoom title="Viewport Zoom">100%</button>
         </div>
+        <div class="view-popover hidden" data-view-popover>
+          <button class="view-opt" data-action="quality"><span>${store.t().previewRes}</span><b data-quality-val>1/2</b></button>
+          <button class="view-opt" data-action="loop"><span>${store.t().loop}</span><b data-loop-val>ON</b></button>
+          <button class="view-opt" data-action="safeMargins"><span>${store.t().safeMargins}</span><b data-safe-val>OFF</b></button>
+          <button class="view-opt" data-action="gizmo"><span>${store.t().transformGizmo}</span><b data-gizmo-val>ON</b></button>
+          <button class="view-opt" data-action="grid"><span>${store.t().transparencyGrid}</span><b data-grid-val>OFF</b></button>
+        </div>
       </div>
       <div class="transport-bar">
         <div class="transport-left">
           <span class="timecode" data-timecode>00:00:00</span>
-          <span class="frame-counter" data-frame-counter>F0</span>
+          <span class="frame-counter" data-frame-counter>/ 5.0s</span>
         </div>
         <div class="transport-controls">
           <button class="icon-btn" title="To Start" data-action="toStart">${ICONS.toStart}</button>
           <button class="icon-btn" title="Prev Frame" data-action="prevFrame">${ICONS.stepBack}</button>
           <button class="icon-btn play-btn" title="Play / Pause" data-action="play">${ICONS.play}</button>
           <button class="icon-btn" title="Next Frame" data-action="nextFrame">${ICONS.stepFwd}</button>
-          <button class="icon-btn" title="Loop" data-action="loop">${ICONS.loop}</button>
         </div>
         <div class="transport-right">
-          <button class="pill-btn" title="Preview Resolution" data-action="quality">1/2</button>
-          <button class="icon-btn" title="Safe Margins" data-action="safeMargins">${ICONS.safeMargin}</button>
-          <button class="icon-btn" title="Transform Gizmo" data-action="gizmo">${ICONS.gizmo}</button>
-          <button class="icon-btn" title="Transparency Grid" data-action="grid">${ICONS.grid}</button>
+          <button class="icon-btn" title="Undo" data-vp-undo>${ICONS.undo}</button>
+          <button class="icon-btn" title="Redo" data-vp-redo>${ICONS.redo}</button>
+          <button class="pill-btn view-menu-btn" data-toggle-view-menu>⚙ Вид</button>
         </div>
       </div>
     </div>
@@ -58,9 +63,13 @@ export function mountViewport(container: HTMLElement): void {
 
   const badgeEl = container.querySelector<HTMLElement>('[data-comp-badge]')!;
   const vpZoomBtn = container.querySelector<HTMLButtonElement>('[data-vp-zoom]')!;
+  const viewPopover = container.querySelector<HTMLElement>('[data-view-popover]')!;
+  const viewMenuBtn = container.querySelector<HTMLButtonElement>('[data-toggle-view-menu]')!;
   const timecodeEl = container.querySelector<HTMLElement>('[data-timecode]')!;
   const frameCounterEl = container.querySelector<HTMLElement>('[data-frame-counter]')!;
   const playBtn = container.querySelector<HTMLButtonElement>('[data-action="play"]')!;
+  const undoBtn = container.querySelector<HTMLButtonElement>('[data-vp-undo]')!;
+  const redoBtn = container.querySelector<HTMLButtonElement>('[data-vp-redo]')!;
   const loopBtn = container.querySelector<HTMLButtonElement>('[data-action="loop"]')!;
   const qualityBtn = container.querySelector<HTMLButtonElement>('[data-action="quality"]')!;
   const safeBtn = container.querySelector<HTMLButtonElement>('[data-action="safeMargins"]')!;
@@ -134,7 +143,7 @@ export function mountViewport(container: HTMLElement): void {
     }
 
     timecodeEl.textContent = formatTimecode(state.currentTime, comp.fps);
-    frameCounterEl.textContent = `F${Math.round(state.currentTime * comp.fps)}`;
+    frameCounterEl.textContent = `/ ${comp.duration.toFixed(1)}s`;
   }
 
   function syncToolbar(): void {
@@ -147,17 +156,32 @@ export function mountViewport(container: HTMLElement): void {
     playBtn.innerHTML = state.isPlaying ? ICONS.pause : ICONS.play;
     playBtn.title = tr.playPause;
     playBtn.classList.toggle('active', state.isPlaying);
+    undoBtn.disabled = !store.canUndo();
+    redoBtn.disabled = !store.canRedo();
+    undoBtn.title = tr.undo;
+    redoBtn.title = tr.redo;
+    viewMenuBtn.textContent = `⚙ ${tr.viewOptionsBtn}`;
+
+    const qText = state.previewQuality === 0.5 ? '1/2' : state.previewQuality === 0.75 ? '3/4' : tr.qualityFull;
+    qualityBtn.querySelector('span')!.textContent = tr.previewRes;
+    qualityBtn.querySelector('b')!.textContent = qText;
+
     loopBtn.classList.toggle('active', state.loop);
-    loopBtn.title = tr.loop;
-    qualityBtn.textContent =
-      state.previewQuality === 0.5 ? '1/2' : state.previewQuality === 0.75 ? '3/4' : tr.qualityFull;
-    qualityBtn.title = tr.previewRes;
+    loopBtn.querySelector('span')!.textContent = tr.loop;
+    loopBtn.querySelector('b')!.textContent = state.loop ? tr.on : tr.off;
+
     safeBtn.classList.toggle('active', state.showSafeMargins);
-    safeBtn.title = tr.safeMargins;
+    safeBtn.querySelector('span')!.textContent = tr.safeMargins;
+    safeBtn.querySelector('b')!.textContent = state.showSafeMargins ? tr.on : tr.off;
+
     gizmoBtn.classList.toggle('active', state.showGizmo);
-    gizmoBtn.title = tr.transformGizmo;
+    gizmoBtn.querySelector('span')!.textContent = tr.transformGizmo;
+    gizmoBtn.querySelector('b')!.textContent = state.showGizmo ? tr.on : tr.off;
+
     gridBtn.classList.toggle('active', state.transparentGrid);
-    gridBtn.title = tr.transparencyGrid;
+    gridBtn.querySelector('span')!.textContent = tr.transparencyGrid;
+    gridBtn.querySelector('b')!.textContent = state.transparentGrid ? tr.on : tr.off;
+
     const toStartBtn = container.querySelector<HTMLElement>('[data-action="toStart"]');
     const prevBtn = container.querySelector<HTMLElement>('[data-action="prevFrame"]');
     const nextBtn = container.querySelector<HTMLElement>('[data-action="nextFrame"]');
@@ -165,6 +189,14 @@ export function mountViewport(container: HTMLElement): void {
     if (prevBtn) prevBtn.title = tr.prevFrame;
     if (nextBtn) nextBtn.title = tr.nextFrame;
   }
+
+  undoBtn.addEventListener('click', () => store.undo());
+  redoBtn.addEventListener('click', () => store.redo());
+  viewMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    viewPopover.classList.toggle('hidden');
+  });
+  stage.addEventListener('pointerdown', () => viewPopover.classList.add('hidden'));
 
   vpZoomBtn.addEventListener('click', () => {
     const cur = store.getState().viewportZoom;

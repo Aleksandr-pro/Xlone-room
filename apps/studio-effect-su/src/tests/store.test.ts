@@ -23,4 +23,21 @@ describe('StudioStore operations & undo/redo', () => {
     store.redo();
     expect(store.getActiveComp().layers.length).toBe(initialCount + 1);
   });
+
+  it('supports CapCut-style dock actions & expandable AE timeline panel', () => {
+    store.loadProject(createNeonIntroProject());
+    expect(store.getState().timelineLayersExpanded).toBe(false);
+    store.toggleTimelineLayersExpanded();
+    expect(store.getState().timelineLayersExpanded).toBe(true);
+
+    store.openInspectorSection('mask');
+    expect(store.getState().activeTab).toBe('inspector');
+    expect(store.getState().inspectorFocusSection).toBe('mask');
+
+    const sel = store.getSelectedLayer()!;
+    store.selectProp('x');
+    store.setTime(1.1);
+    store.toggleSelectedPropKeyframe();
+    expect(sel.transform.x.keyframes.some((k) => Math.abs(k.time - 1.1) < 0.01)).toBe(true);
+  });
 });
