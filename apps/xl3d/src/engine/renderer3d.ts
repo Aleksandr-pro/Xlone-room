@@ -1,10 +1,12 @@
 import {
   add3,
-  degToRad,
   dot3,
   getCameraBasis,
+  intersectRayTriangle,
+  inverseTransformVec3,
   norm3,
   projectPoint,
+  screenToRay,
   sub3,
   transformVec3,
   type CameraBasis,
@@ -31,6 +33,14 @@ export interface RenderStats {
   evaluatedMeshes: Map<string, MeshData>;
 }
 
+export interface ScreenPickResult {
+  objectId: string;
+  hitWorld: Vec3;
+  hitLocal: Vec3;
+  faceIdx: number;
+  depth: number;
+}
+
 interface DrawTri {
   pts: Array<{ x: number; y: number }>;
   depth: number;
@@ -38,6 +48,7 @@ interface DrawTri {
   stroke: string;
   wireOnly: boolean;
   freestyle: boolean;
+  selectedFace: boolean;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -65,7 +76,8 @@ export function renderViewport3D(
   mode: InteractionMode,
   paintState: PaintSettings,
   showOverlays = true,
-  isOffscreenRender = false
+  isOffscreenRender = false,
+  brushOverlay?: { screenX: number; screenY: number; radiusPx: number } | null
 ): RenderStats {
   const timeSec = (scene.currentFrame - 1) / Math.max(1, scene.fps);
   const basis = getCameraBasis(camera);
@@ -152,7 +164,7 @@ export function renderViewport3D(
           isActive
         );
 
-        let stroke = 'rgba(0,0,0,0.12)';
+        let stroke = 'rgba(0,0,0,0.14)';
         if (wbMode === 'wireframe') stroke = isActive ? '#ff9c3a' : '#8fa0b5';
         else if (mode === 'edit' && isActive) stroke = f.selected ? '#ffaa3b' : 'rgba(255,255,255,0.22)';
         else if (scene.render.freestyle) stroke = '#111116';
@@ -164,7 +176,13 @@ export function renderViewport3D(
           stroke,
           wireOnly: engine === 'workbench' && wbMode === 'wireframe',
           freestyle: scene.render.freestyle,
+          selectedFace: mode === 'edit' && isActive && f.selected,
         });
+      }
+
+      // Particles / Hair preview
+      if (obj.physics.type === 'particles' || obj.physics.type === 'hair') {
+        drawParticlesPreview(ctx, worldPts, obj, basis, camera, width, height, timeSec);
       }
     }
   }
@@ -180,27 +198,42 @@ export function renderViewport3D(
       ctx.fillStyle = t.fill;
       ctx.fill();
     }
-    if (t.wireOnly || t.freestyle || mode === 'edit' || engine === 'workbench') {
+    if (t.wireOnly || t.freestyle || mode === 'edit' || engine === 'workbench' || t.selectedFace) {
       ctx.strokeStyle = t.stroke;
-      ctx.lineWidth = t.freestyle ? scene.render.freestyleThickness : t.wireOnly ? 1.15 : 0.7;
+      ctx.lineWidth = t.selectedFace ? 1.8 : t.freestyle ? scene.render.freestyleThickness : t.wireOnly ? 1.15 : 0.7;
       ctx.stroke();
     }
   }
 
-  // Edit mode vertices
+  // Edit mode edges (seams, sharp, selected) & vertices
   if (mode === 'edit' && scene.activeObjectId) {
     const activeObj = scene.objects.find((o) => o.id === scene.activeObjectId);
     if (activeObj?.mesh) {
       const tr = evaluateAnimatedTransform(activeObj, scene.currentFrame, scene.fps);
-      for (const v of activeObj.mesh.vertices) {
-        if (v.hidden) continue;
-        const p = projectPoint(transformVec3(v.pos, tr.location, tr.rotation, tr.scale), basis, camera, width, height);
-        if (!p.visible) continue;
+      const projCache = activeObj.mesh.vertices.map((v) =>
+        projectPoint(transformVec3(v.pos, tr.location, tr.rotation, tr.scale), basis, camera, width, height)
+      );
+      for (const edge of activeObj.mesh.edges) {
+        if (!edge.selected && !edge.seam && !edge.sharp) continue;
+        const pa = projCache[edge.a];
+        const pb = projCache[edge.b];
+        if (!pa?.visible || !pb?.visible) continue;
+        ctx.strokeStyle = edge.selected ? '#ff9c38' : edge.seam ? '#ef4444' : '#38bdf8';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(pa.sx, pa.sy);
+        ctx.lineTo(pb.sx, pb.sy);
+        ctx.stroke();
+      }
+      activeObj.mesh.vertices.forEach((v, idx) => {
+        if (v.hidden) return;
+        const p = projCache[idx];
+        if (!p?.visible) return;
         ctx.fillStyle = v.selected ? '#ff9c38' : '#b7c2d0';
         ctx.beginPath();
-        ctx.arc(p.sx, p.sy, v.selected ? 4.2 : 2.6, 0, Math.PI * 2);
+        ctx.arc(p.sx, p.sy, v.selected ? 4.4 : 2.5, 0, Math.PI * 2);
         ctx.fill();
-      }
+      });
     }
   }
 
@@ -236,6 +269,10 @@ export function renderViewport3D(
         ctx.moveTo(p1.sx, p1.sy);
         ctx.lineTo(p2.sx, p2.sy);
         ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(p1.sx, p1.sy, 3.5, 0, Math.PI * 2);
+        ctx.fill();
       }
     } else if (obj.type === 'volume' && obj.volume) {
       const puffs = [{ x: 0, y: 0, z: 0.2, r: 0.9 }, { x: -0.5, y: 0.2, z: 0.1, r: 0.65 }, { x: 0.55, y: -0.15, z: 0.15, r: 0.7 }];
@@ -311,15 +348,83 @@ export function renderViewport3D(
     ctx.restore();
   }
 
-  if (showOverlays && !isOffscreenRender && scene.activeObjectId && mode !== 'sculpt') {
-    const activeObj = scene.objects.find((o) => o.id === scene.activeObjectId);
-    if (activeObj && activeObj.visible) {
-      const animTr = evaluateAnimatedTransform(activeObj, scene.currentFrame, scene.fps);
-      drawTransformGizmo(ctx, animTr.location, basis, camera, width, height);
+  if (showOverlays && !isOffscreenRender) {
+    draw3DCursor(ctx, scene.cursor3D, basis, camera, width, height);
+    if (scene.activeObjectId && mode !== 'sculpt' && mode !== 'paint') {
+      const activeObj = scene.objects.find((o) => o.id === scene.activeObjectId);
+      if (activeObj && activeObj.visible) {
+        const animTr = evaluateAnimatedTransform(activeObj, scene.currentFrame, scene.fps);
+        drawTransformGizmo(ctx, animTr.location, basis, camera, width, height);
+      }
+    }
+    if (brushOverlay) {
+      ctx.save();
+      ctx.strokeStyle = mode === 'sculpt' ? 'rgba(255, 140, 56, 0.85)' : 'rgba(56, 189, 248, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(brushOverlay.screenX, brushOverlay.screenY, brushOverlay.radiusPx, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
   return { objectsDrawn, trisDrawn: tris.length, verticesCount, evaluatedMeshes };
+}
+
+function drawParticlesPreview(
+  ctx: CanvasRenderingContext2D,
+  worldPts: Vec3[],
+  obj: SceneObject,
+  basis: CameraBasis,
+  camera: OrbitCamera,
+  w: number,
+  h: number,
+  timeSec: number
+): void {
+  const count = Math.min(60, Math.max(8, Math.floor(obj.physics.particleCount / 4)));
+  ctx.save();
+  for (let i = 0; i < count && worldPts.length > 0; i++) {
+    const src = worldPts[i % worldPts.length];
+    if (obj.physics.type === 'hair') {
+      const tip = { x: src.x, y: src.y, z: src.z + obj.physics.hairLength };
+      const p0 = projectPoint(src, basis, camera, w, h);
+      const p1 = projectPoint(tip, basis, camera, w, h);
+      if (p0.visible && p1.visible) {
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy); ctx.lineTo(p1.sx, p1.sy); ctx.stroke();
+      }
+    } else {
+      const fall = (timeSec * 1.8 + i * 0.13) % 2.0;
+      const p = projectPoint({ x: src.x + Math.sin(i + timeSec) * 0.15, y: src.y, z: Math.max(0.05, src.z - fall * 0.6) }, basis, camera, w, h);
+      if (p.visible) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath(); ctx.arc(p.sx, p.sy, 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function draw3DCursor(
+  ctx: CanvasRenderingContext2D,
+  cursor: Vec3,
+  basis: CameraBasis,
+  camera: OrbitCamera,
+  w: number,
+  h: number
+): void {
+  const p = projectPoint(cursor, basis, camera, w, h);
+  if (!p.visible) return;
+  ctx.save();
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(p.sx, p.sy, 8, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#ffffff';
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.arc(p.sx, p.sy, 8, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
 }
 
 function drawBackground(
@@ -567,43 +672,69 @@ function drawTransformGizmo(
   ctx.restore();
 }
 
+// Accurate Moller-Trumbore Raycast against frontmost mesh triangles (fixes back-face mirroring/picking)
 export function pickSceneAtScreen(
   sx: number,
   sy: number,
   w: number,
   h: number,
   scene: XL3DScene,
-  camera: OrbitCamera
-): { objectId: string; hitWorld: Vec3; hitLocal: Vec3 } | null {
+  camera: OrbitCamera,
+  preferredObjectId?: string | null
+): ScreenPickResult | null {
   const basis = getCameraBasis(camera);
-  const nx = (sx / Math.max(1, w)) * 2 - 1;
-  const ny = 1 - (sy / Math.max(1, h)) * 2;
-  const aspect = w / Math.max(1, h);
-  const tanHalf = Math.tan(degToRad(camera.fovDeg * 0.5));
-  const dir = norm3({
-    x: basis.forward.x + basis.right.x * nx * tanHalf * aspect + basis.up.x * ny * tanHalf,
-    y: basis.forward.y + basis.right.y * nx * tanHalf * aspect + basis.up.y * ny * tanHalf,
-    z: basis.forward.z + basis.right.z * nx * tanHalf * aspect + basis.up.z * ny * tanHalf,
-  });
+  const ray = screenToRay(sx, sy, w, h, basis, camera);
+  const timeSec = (scene.currentFrame - 1) / Math.max(1, scene.fps);
 
-  let bestDist = Infinity;
-  let result: { objectId: string; hitWorld: Vec3; hitLocal: Vec3 } | null = null;
+  let bestT = Infinity;
+  let result: ScreenPickResult | null = null;
 
   for (const obj of scene.objects) {
     if (!obj.visible) continue;
-    const center = obj.location;
-    const toObj = sub3(center, basis.pos);
-    const tProj = Math.max(0, dot3(toObj, dir));
-    const closest = add3(basis.pos, { x: dir.x * tProj, y: dir.y * tProj, z: dir.z * tProj });
-    const radialDist = Math.hypot(closest.x - center.x, closest.y - center.y, closest.z - center.z);
-    if (radialDist < 1.8 && tProj < bestDist) {
-      bestDist = tProj;
-      const hitLocal = {
-        x: (closest.x - center.x) / Math.max(0.1, obj.scale.x),
-        y: (closest.y - center.y) / Math.max(0.1, obj.scale.y),
-        z: (closest.z - center.z) / Math.max(0.1, obj.scale.z),
-      };
-      result = { objectId: obj.id, hitWorld: closest, hitLocal };
+    if (preferredObjectId && obj.id !== preferredObjectId) continue;
+
+    const animTr = evaluateAnimatedTransform(obj, scene.currentFrame, scene.fps);
+
+    if (obj.mesh && obj.mesh.faces.length > 0) {
+      const mesh = evaluateModifierStack(obj, timeSec) ?? obj.mesh;
+      const worldPts = mesh.vertices.map((v) => transformVec3(v.pos, animTr.location, animTr.rotation, animTr.scale));
+
+      for (let fi = 0; fi < mesh.faces.length; fi++) {
+        const f = mesh.faces[fi];
+        if (f.hidden || f.verts.length < 3) continue;
+        const w0 = worldPts[f.verts[0]];
+
+        for (let ti = 1; ti < f.verts.length - 1; ti++) {
+          const w1 = worldPts[f.verts[ti]];
+          const w2 = worldPts[f.verts[ti + 1]];
+          const fn = norm3({
+            x: (w1.y - w0.y) * (w2.z - w0.z) - (w1.z - w0.z) * (w2.y - w0.y),
+            y: (w1.z - w0.z) * (w2.x - w0.x) - (w1.x - w0.x) * (w2.z - w0.z),
+            z: (w1.x - w0.x) * (w2.y - w0.y) - (w1.y - w0.y) * (w2.x - w0.x),
+          });
+          // Skip back-facing triangles so picking/sculpting always hits the camera-facing front surface
+          if (dot3(fn, ray.dir) > 0.05) continue;
+
+          const t = intersectRayTriangle(ray.origin, ray.dir, w0, w1, w2);
+          if (t !== null && t < bestT) {
+            bestT = t;
+            const hitWorld = add3(ray.origin, { x: ray.dir.x * t, y: ray.dir.y * t, z: ray.dir.z * t });
+            const hitLocal = inverseTransformVec3(hitWorld, animTr.location, animTr.rotation, animTr.scale);
+            result = { objectId: obj.id, hitWorld, hitLocal, faceIdx: fi, depth: t };
+          }
+        }
+      }
+    } else if (!preferredObjectId) {
+      const center = animTr.location;
+      const toObj = sub3(center, ray.origin);
+      const tProj = Math.max(0.1, dot3(toObj, ray.dir));
+      const closest = add3(ray.origin, { x: ray.dir.x * tProj, y: ray.dir.y * tProj, z: ray.dir.z * tProj });
+      const radialDist = Math.hypot(closest.x - center.x, closest.y - center.y, closest.z - center.z);
+      if (radialDist < 1.1 && tProj < bestT) {
+        bestT = tProj;
+        const hitLocal = inverseTransformVec3(closest, animTr.location, animTr.rotation, animTr.scale);
+        result = { objectId: obj.id, hitWorld: closest, hitLocal, faceIdx: 0, depth: tProj };
+      }
     }
   }
   return result;

@@ -1,4 +1,4 @@
-import { add3, computeFaceNormal, len3, norm3, scale3, sub3, uid } from '../core/math3d';
+import { add3, dot3, len3, norm3, rotateOnlyVec3, scale3, sub3, uid } from '../core/math3d';
 import type { EditSelectMode, Face, MeshData, Vec3, Vertex } from '../core/types';
 import { buildEdgesFromFaces, recomputeNormals } from './primitives';
 
@@ -15,7 +15,77 @@ function cloneVert(v: Vertex, pos: Vec3): Vertex {
   };
 }
 
-export function getSelectedVertexIndices(mesh: MeshData, mode: EditSelectMode): Set<number> {
+export function getCameraFacingFace(mesh: MeshData, camForwardLocal?: Vec3): Face | undefined {
+  if (mesh.faces.length === 0) return undefined;
+  if (!camForwardLocal) return mesh.faces[1] ?? mesh.faces[0];
+  let best: Face = mesh.faces[0];
+  let bestDot = Infinity;
+  for (const f of mesh.faces) {
+    if (f.hidden) continue;
+    const d = dot3(f.normal, camForwardLocal);
+    if (d < bestDot) {
+      bestDot = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
+export function selectMeshElementByHit(
+  mesh: MeshData,
+  mode: EditSelectMode,
+  faceIdx: number,
+  hitLocal: Vec3,
+  additive = false
+): void {
+  if (!additive) {
+    mesh.vertices.forEach((v) => { v.selected = false; });
+    mesh.edges.forEach((e) => { e.selected = false; });
+    mesh.faces.forEach((f) => { f.selected = false; });
+  }
+  const face = mesh.faces[faceIdx];
+  if (!face) return;
+
+  if (mode === 'face') {
+    face.selected = true;
+    face.verts.forEach((vi) => {
+      if (mesh.vertices[vi]) mesh.vertices[vi].selected = true;
+    });
+  } else if (mode === 'vertex') {
+    let bestVi = face.verts[0];
+    let bestD = Infinity;
+    for (const vi of face.verts) {
+      const v = mesh.vertices[vi];
+      if (!v) continue;
+      const d = len3(sub3(v.pos, hitLocal));
+      if (d < bestD) {
+        bestD = d;
+        bestVi = vi;
+      }
+    }
+    if (mesh.vertices[bestVi]) mesh.vertices[bestVi].selected = true;
+  } else if (mode === 'edge') {
+    let bestEdgeIdx = -1;
+    let bestD = Infinity;
+    mesh.edges.forEach((e, idx) => {
+      if (!face.verts.includes(e.a) || !face.verts.includes(e.b)) return;
+      const mid = scale3(add3(mesh.vertices[e.a].pos, mesh.vertices[e.b].pos), 0.5);
+      const d = len3(sub3(mid, hitLocal));
+      if (d < bestD) {
+        bestD = d;
+        bestEdgeIdx = idx;
+      }
+    });
+    if (bestEdgeIdx >= 0) {
+      const edge = mesh.edges[bestEdgeIdx];
+      edge.selected = true;
+      mesh.vertices[edge.a].selected = true;
+      mesh.vertices[edge.b].selected = true;
+    }
+  }
+}
+
+export function getSelectedVertexIndices(mesh: MeshData, mode: EditSelectMode, camForwardLocal?: Vec3): Set<number> {
   const set = new Set<number>();
   if (mode === 'vertex') {
     mesh.vertices.forEach((v, i) => {
@@ -34,8 +104,8 @@ export function getSelectedVertexIndices(mesh: MeshData, mode: EditSelectMode): 
     });
   }
   if (set.size === 0 && mesh.faces.length > 0) {
-    // Fallback: if nothing selected, select first face for quick mobile editing
-    mesh.faces[0].verts.forEach((vi) => set.add(vi));
+    const fallback = getCameraFacingFace(mesh, camForwardLocal);
+    fallback?.verts.forEach((vi) => set.add(vi));
   }
   return set;
 }
@@ -113,8 +183,14 @@ export function selectChecker(mesh: MeshData): void {
   });
 }
 
-export function translateSelection(mesh: MeshData, mode: EditSelectMode, delta: Vec3, proportionalRadius = 0): void {
-  const sel = getSelectedVertexIndices(mesh, mode);
+export function translateSelection(
+  mesh: MeshData,
+  mode: EditSelectMode,
+  delta: Vec3,
+  proportionalRadius = 0,
+  camForwardLocal?: Vec3
+): void {
+  const sel = getSelectedVertexIndices(mesh, mode, camForwardLocal);
   if (proportionalRadius <= 0) {
     sel.forEach((vi) => {
       const v = mesh.vertices[vi];
@@ -137,12 +213,59 @@ export function translateSelection(mesh: MeshData, mode: EditSelectMode, delta: 
   recomputeNormals(mesh);
 }
 
+export function rotateSelection(
+  mesh: MeshData,
+  mode: EditSelectMode,
+  rotDeg: Vec3,
+  pivot?: Vec3
+): void {
+  const sel = Array.from(getSelectedVertexIndices(mesh, mode));
+  if (sel.length === 0) return;
+  const center =
+    pivot ??
+    scale3(
+      sel.reduce((acc, vi) => add3(acc, mesh.vertices[vi].pos), { x: 0, y: 0, z: 0 }),
+      1 / sel.length
+    );
+  sel.forEach((vi) => {
+    const v = mesh.vertices[vi];
+    if (!v) return;
+    v.pos = add3(center, rotateOnlyVec3(sub3(v.pos, center), rotDeg));
+  });
+  recomputeNormals(mesh);
+}
+
+export function scaleSelection(
+  mesh: MeshData,
+  mode: EditSelectMode,
+  factor: number,
+  pivot?: Vec3
+): void {
+  const sel = Array.from(getSelectedVertexIndices(mesh, mode));
+  if (sel.length === 0) return;
+  const center =
+    pivot ??
+    scale3(
+      sel.reduce((acc, vi) => add3(acc, mesh.vertices[vi].pos), { x: 0, y: 0, z: 0 }),
+      1 / sel.length
+    );
+  sel.forEach((vi) => {
+    const v = mesh.vertices[vi];
+    if (!v) return;
+    v.pos = add3(center, scale3(sub3(v.pos, center), factor));
+  });
+  recomputeNormals(mesh);
+}
+
 // Extrude selected faces along their normal
-export function extrudeFaces(mesh: MeshData, distance = 0.45): void {
+export function extrudeFaces(mesh: MeshData, distance = 0.45, camForwardLocal?: Vec3): void {
   let targetFaces = mesh.faces.filter((f) => f.selected);
   if (targetFaces.length === 0 && mesh.faces.length > 0) {
-    targetFaces = [mesh.faces[0]];
-    mesh.faces[0].selected = true;
+    const fallback = getCameraFacingFace(mesh, camForwardLocal);
+    if (fallback) {
+      fallback.selected = true;
+      targetFaces = [fallback];
+    }
   }
   for (const face of targetFaces) {
     const n = face.normal;
@@ -177,11 +300,14 @@ export function extrudeFaces(mesh: MeshData, distance = 0.45): void {
 }
 
 // Inset selected faces toward their center
-export function insetFaces(mesh: MeshData, thickness = 0.25): void {
+export function insetFaces(mesh: MeshData, thickness = 0.25, camForwardLocal?: Vec3): void {
   let targetFaces = mesh.faces.filter((f) => f.selected);
   if (targetFaces.length === 0 && mesh.faces.length > 0) {
-    targetFaces = [mesh.faces[0]];
-    mesh.faces[0].selected = true;
+    const fallback = getCameraFacingFace(mesh, camForwardLocal);
+    if (fallback) {
+      fallback.selected = true;
+      targetFaces = [fallback];
+    }
   }
   for (const face of targetFaces) {
     const oldVerts = [...face.verts];
@@ -588,4 +714,52 @@ export function packUvIslands(mesh: MeshData): void {
       y: 0.05 + ((v.uv.y - minV) / spanV) * 0.9,
     };
   }
+}
+
+export function flipNormals(mesh: MeshData): void {
+  let flipped = false;
+  for (const f of mesh.faces) {
+    if (f.selected) {
+      f.verts.reverse();
+      flipped = true;
+    }
+  }
+  if (!flipped) {
+    for (const f of mesh.faces) f.verts.reverse();
+  }
+  recomputeNormals(mesh);
+}
+
+export function pokeFaces(mesh: MeshData): void {
+  const out: Face[] = [];
+  for (const f of mesh.faces) {
+    if (!f.selected || f.verts.length < 3) {
+      out.push(f);
+      continue;
+    }
+    const cPos = scale3(
+      f.verts.reduce((acc, vi) => add3(acc, mesh.vertices[vi].pos), { x: 0, y: 0, z: 0 }),
+      1 / f.verts.length
+    );
+    const ci = mesh.vertices.length;
+    mesh.vertices.push(cloneVert(mesh.vertices[f.verts[0]], add3(cPos, scale3(f.normal, 0.2))));
+    for (let i = 0; i < f.verts.length; i++) {
+      out.push({
+        ...f,
+        verts: [f.verts[i], f.verts[(i + 1) % f.verts.length], ci],
+        selected: true,
+      });
+    }
+  }
+  mesh.faces = out;
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+}
+
+export function toggleSharpEdges(mesh: MeshData): void {
+  mesh.edges.forEach((e) => {
+    if (e.selected || (mesh.vertices[e.a]?.selected && mesh.vertices[e.b]?.selected)) {
+      e.sharp = !e.sharp;
+    }
+  });
 }

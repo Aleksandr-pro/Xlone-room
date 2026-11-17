@@ -80,10 +80,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="xl3d-v1.0.${{ github.run_number }}"
+          TAG="xl3d-v1.1.${{ github.run_number }}"
           SIZE_H=$(du -sh XL3D.apk | cut -f1)
           gh release create "$TAG" XL3D.apk \
             --target "${{ github.sha }}" \
-            --title "XL3D v1.0.${{ github.run_number }} (Blender 5.x Mobile)" \
-            --notes "Нативный Android APK XL3D (${SIZE_H}) — ультра-лёгкий мобильный клон Blender 5.x (Modeling, Sculpt, Paint/Bake, Shader/Geometry/Compositor Nodes, Cycles/EEVEE/AgX, Animation/Rigify, Physics, Grease Pencil, VSE 5.3, OBJ/STL/PLY/GLB/SPZ)." \
+            --title "XL3D v1.1.${{ github.run_number }} (Blender 5.x Mobile)" \
+            --notes "Нативный Android APK XL3D (${SIZE_H}) — v1.1: точный raycast-скульптинг и редактирование без отзеркаливания (Front Faces Only, Camera-Space), интерактивные 2D Node Graph, UV Editor, F-Curve Graph Editor, Texture Paint Canvas, Proportional Editing, .xl3d save/load, мобильный UI." \
             --latest

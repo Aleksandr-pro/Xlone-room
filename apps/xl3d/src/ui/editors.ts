@@ -2,6 +2,7 @@ import type {
   BakeType,
   CameraInputSpace,
   ColorTransform,
+  LightKind,
   ModifierType,
   PhysicsType,
   ProcTextureType,
@@ -22,6 +23,12 @@ import {
 } from '../engine/ioFormats';
 import { exportVseToOtio } from '../engine/physicsAndAnim';
 import { store } from '../state/xl3dStore';
+import {
+  mountGraphEditorCanvas,
+  mountNodeGraphCanvas,
+  mountTexturePaintCanvas,
+  mountUvEditorCanvas,
+} from './visualCanvases';
 
 function downloadBlob(filename: string, data: BlobPart, mime: string): void {
   const blob = new Blob([data], { type: mime });
@@ -51,6 +58,17 @@ export function mountEditorPanel(container: HTMLElement): () => void {
     else html = renderEditorsHubTab();
 
     container.innerHTML = html;
+
+    // Mount interactive visual canvases if present in active tab
+    const ngCanvas = container.querySelector('#xl-node-canvas') as HTMLCanvasElement | null;
+    if (ngCanvas) mountNodeGraphCanvas(ngCanvas);
+    const uvCanvas = container.querySelector('#xl-uv-canvas') as HTMLCanvasElement | null;
+    if (uvCanvas) mountUvEditorCanvas(uvCanvas);
+    const fcCanvas = container.querySelector('#xl-fcurve-canvas') as HTMLCanvasElement | null;
+    if (fcCanvas) mountGraphEditorCanvas(fcCanvas);
+    const tpCanvas = container.querySelector('#xl-texpaint-canvas') as HTMLCanvasElement | null;
+    if (tpCanvas) mountTexturePaintCanvas(tpCanvas);
+
     bindInteractions(container, () => isDraggingSlider, (v) => { isDraggingSlider = v; });
   };
 
@@ -65,9 +83,10 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
   const editOpsList = [
     ['extrude', 'Extrude'], ['inset', 'Inset'], ['bevel', 'Bevel'],
     ['loopcut', 'Loop Cut'], ['knife', 'Knife / Bisect'], ['bridge', 'Bridge / Fill'],
-    ['merge', 'Merge Center'], ['dissolve', 'Dissolve'], ['spin', 'Spin'],
-    ['polybuild', 'Poly Build'], ['subdivide', 'Subdivide'], ['triangulate', 'Triangulate'],
-    ['tris_to_quads', 'Tris→Quads'], ['shrink_fatten', 'Shrink/Fatten'], ['smooth_verts', 'Smooth'],
+    ['merge', 'Merge Center'], ['dissolve', 'Dissolve'], ['poke_faces', 'Poke Faces'],
+    ['spin', 'Spin 90°'], ['polybuild', 'Poly Build'], ['subdivide', 'Subdivide'],
+    ['triangulate', 'Triangulate'], ['tris_to_quads', 'Tris→Quads'], ['shrink_fatten', 'Shrink/Fatten'],
+    ['smooth_verts', 'Smooth'], ['flip_normals', 'Flip Normals'], ['toggle_sharp', 'Sharp Edge'],
     ['looptools_circle', 'LoopTools Circle (5.2)'], ['looptools_flatten', 'LoopTools Flatten (5.2)'],
     ['looptools_space', 'LoopTools Space (5.2)'],
     ['shade_smooth', 'Shade Smooth Angle'], ['shade_flat', 'Shade Flat'],
@@ -118,6 +137,7 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
             <input type="range" min="0.05" max="1.5" step="0.05" value="${store.sculpt.strength}" data-live="sculpt_strength" />
           </div>
           <div class="xl-chip-row">
+            <button class="xl-chip ${store.sculpt.frontFacesOnly !== false ? 'active' : ''}" data-sym="frontFacesOnly">Front Faces Only</button>
             <button class="xl-chip ${store.sculpt.symX ? 'active' : ''}" data-sym="symX">Sym X</button>
             <button class="xl-chip ${store.sculpt.symY ? 'active' : ''}" data-sym="symY">Sym Y</button>
             <button class="xl-chip ${store.sculpt.symZ ? 'active' : ''}" data-sym="symZ">Sym Z</button>
@@ -142,6 +162,10 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
             <input type="color" value="${store.paint.color}" data-live="paint_color" />
             <input type="range" min="0" max="1" step="0.05" value="${store.paintWeightValue}" data-live="paint_weight" />
           </div>
+          ${store.paint.mode === 'texture' ? `
+            <div class="xl-card-subtitle">2D Texture Paint Canvas (рисуйте пальцем)</div>
+            <canvas id="xl-texpaint-canvas" width="320" height="180" class="xl-visual-canvas"></canvas>
+          ` : ''}
           <div class="xl-card-subtitle">${d.bakeTitle}</div>
           <div class="xl-chip-row">
             ${bakes.map((b) => `<button class="xl-btn" data-bake="${b}">Bake ${b.toUpperCase()}</button>`).join('')}
@@ -156,10 +180,15 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
       ` : `
         <div class="xl-section-card">
           <div class="xl-card-title">${d.editOpsTitle}</div>
-          <div class="xl-chip-row" style="margin-bottom:8px;">
+          <div class="xl-slider-row">
+            <label>Step / Extrude / Inset (${store.editOpAmount.toFixed(2)})</label>
+            <input type="range" min="0.1" max="1.5" step="0.05" value="${store.editOpAmount}" data-live="edit_amount" />
+          </div>
+          <div class="xl-chip-row" style="margin-bottom:10px;">
             <button class="xl-chip ${store.editSelectMode === 'vertex' ? 'active' : ''}" data-esm="vertex">${d.selectModes.vertex}</button>
             <button class="xl-chip ${store.editSelectMode === 'edge' ? 'active' : ''}" data-esm="edge">${d.selectModes.edge}</button>
             <button class="xl-chip ${store.editSelectMode === 'face' ? 'active' : ''}" data-esm="face">${d.selectModes.face}</button>
+            <button class="xl-chip ${store.proportionalEditing ? 'active' : ''}" id="xl-prop-toggle">Proportional</button>
             <button class="xl-chip" data-edit-op="select_all">All</button>
             <button class="xl-chip" data-edit-op="select_invert">Invert</button>
             <button class="xl-chip" data-edit-op="select_loop">Loop</button>
@@ -184,8 +213,8 @@ function renderOutlinerTab(): string {
         <div class="xl-outliner-list">
           ${store.scene.objects.map((o) => `
             <div class="xl-outliner-item ${o.id === store.scene.activeObjectId ? 'active' : ''}" data-select-obj="${o.id}">
-              <span>${o.type.toUpperCase()} · <strong>${o.name}</strong></span>
-              <button class="xl-chip" data-toggle-vis="${o.id}">${o.visible ? '👁' : '🙈'}</button>
+              <span><span class="xl-badge-mini">${o.type}</span> <strong>${o.name}</strong></span>
+              <button class="xl-chip xl-chip-sm" data-toggle-vis="${o.id}">${o.visible ? '👁' : '🙈'}</button>
             </div>
           `).join('')}
         </div>
@@ -213,6 +242,7 @@ function renderPropertiesTab(
   const wbModes: WorkbenchShading[] = ['solid', 'wireframe', 'matcap', 'xray', 'cavity', 'outline'];
   const cms: ColorTransform[] = ['agx', 'filmic', 'aces', 'standard', 'wideGamut'];
   const camSpaces: CameraInputSpace[] = ['sRGB', 'AppleLog', 'ARRI_LogC4', 'Blackmagic', 'CanonLog2', 'SonySLog3'];
+  const lightKinds: LightKind[] = ['point', 'sun', 'spot', 'area'];
 
   return `
     <div class="xl-panel-stack">
@@ -237,18 +267,51 @@ function renderPropertiesTab(
           `).join('')}
         </div>
 
+        ${obj.light ? `
+          <div class="xl-section-card">
+            <div class="xl-card-title">Light Properties</div>
+            <div class="xl-chip-row">
+              ${lightKinds.map((lk) => `<button class="xl-chip ${obj.light!.kind === lk ? 'active' : ''}" data-light-kind="${lk}">${lk.toUpperCase()}</button>`).join('')}
+            </div>
+            <div class="xl-slider-row">
+              <label>Power (${obj.light.power.toFixed(0)} W)</label>
+              <input type="range" min="1" max="1500" step="10" value="${obj.light.power}" data-live="light_power" />
+            </div>
+          </div>
+        ` : ''}
+
+        ${obj.camera ? `
+          <div class="xl-section-card">
+            <div class="xl-card-title">Camera Properties</div>
+            <div class="xl-slider-row">
+              <label>Focal Length (${obj.camera.focalLength.toFixed(0)} mm)</label>
+              <input type="range" min="14" max="135" step="1" value="${obj.camera.focalLength}" data-live="cam_focal" />
+            </div>
+          </div>
+        ` : ''}
+
         <div class="xl-section-card">
           <div class="xl-card-title">${d.modifiersTitle} (${obj.modifiers.length})</div>
           <div class="xl-chip-row" style="margin-bottom:8px;">
-            ${mods.map((m) => `<button class="xl-chip" data-add-mod="${m}">＋ ${m}</button>`).join('')}
+            ${mods.map((m) => `<button class="xl-chip xl-chip-sm" data-add-mod="${m}">＋ ${m}</button>`).join('')}
           </div>
           ${obj.modifiers.map((m) => `
-            <div class="xl-mod-row">
-              <strong>${m.name}</strong>
-              <div>
-                <button class="xl-chip ${m.enabled ? 'active' : ''}" data-toggle-mod="${m.id}">${m.enabled ? 'ON' : 'OFF'}</button>
-                <button class="xl-chip" data-del-mod="${m.id}">✕</button>
+            <div class="xl-mod-card">
+              <div class="xl-mod-row" style="margin-top:0;padding:0;border:none;background:transparent;">
+                <strong>${m.name}</strong>
+                <div>
+                  <button class="xl-chip xl-chip-sm ${m.enabled ? 'active' : ''}" data-toggle-mod="${m.id}">${m.enabled ? 'ON' : 'OFF'}</button>
+                  <button class="xl-chip xl-chip-sm" data-del-mod="${m.id}">✕</button>
+                </div>
               </div>
+              ${Object.entries(m.params).map(([pk, pv]) =>
+                typeof pv === 'number' ? `
+                  <div class="xl-slider-row" style="margin:4px 0;">
+                    <label>${pk}: ${pv.toFixed(2)}</label>
+                    <input type="range" min="0" max="${pk.includes('count') ? 8 : pk.includes('angle') ? 360 : 3}" step="${pk.includes('count') || pk.includes('levels') ? 1 : 0.05}" value="${pv}" data-mod-param="${m.id}:${pk}" />
+                  </div>
+                ` : ''
+              ).join('')}
             </div>
           `).join('')}
         </div>
@@ -258,6 +321,12 @@ function renderPropertiesTab(
           <div class="xl-chip-row">
             ${physicsTypes.map((pt) => `<button class="xl-chip ${obj.physics.type === pt ? 'active' : ''}" data-phys-type="${pt}">${pt}</button>`).join('')}
           </div>
+          ${obj.physics.type !== 'none' ? `
+            <div class="xl-slider-row">
+              <label>Gravity / Wind (${obj.physics.gravityScale.toFixed(2)})</label>
+              <input type="range" min="0" max="3" step="0.1" value="${obj.physics.gravityScale}" data-live="phys_gravity" />
+            </div>
+          ` : ''}
           ${obj.mesh ? `<div style="margin-top:8px;"><button class="xl-btn" id="xl-add-shapekey">＋ Shape Key (${obj.shapeKeys.length})</button></div>` : ''}
         </div>
       ` : ''}
@@ -304,19 +373,28 @@ function renderPropertiesTab(
         </div>
         <div class="xl-card-subtitle">Workbench Shading</div>
         <div class="xl-chip-row">
-          ${wbModes.map((wb) => `<button class="xl-chip ${store.scene.render.workbenchShading === wb ? 'active' : ''}" data-wb="${wb}">${wb}</button>`).join('')}
+          ${wbModes.map((wb) => `<button class="xl-chip xl-chip-sm ${store.scene.render.workbenchShading === wb ? 'active' : ''}" data-wb="${wb}">${wb}</button>`).join('')}
+        </div>
+        <div class="xl-card-subtitle">World Sky 5.3 & Atmosphere Fog</div>
+        <div class="xl-slider-row">
+          <label>Sun Elevation (${store.scene.world.sunElevation.toFixed(0)}°)</label>
+          <input type="range" min="5" max="88" step="1" value="${store.scene.world.sunElevation}" data-live="world_sun" />
+        </div>
+        <div class="xl-slider-row">
+          <label>Fog Density (${store.scene.world.fogDensity.toFixed(2)})</label>
+          <input type="range" min="0" max="1" step="0.05" value="${store.scene.world.fogDensity}" data-live="world_fog" />
         </div>
         <div class="xl-card-subtitle">Color Management & 5.2 Camera Input Space</div>
         <div class="xl-chip-row">
-          ${cms.map((cm) => `<button class="xl-chip ${store.scene.render.colorTransform === cm ? 'active' : ''}" data-cm="${cm}">${cm.toUpperCase()}</button>`).join('')}
+          ${cms.map((cm) => `<button class="xl-chip xl-chip-sm ${store.scene.render.colorTransform === cm ? 'active' : ''}" data-cm="${cm}">${cm.toUpperCase()}</button>`).join('')}
         </div>
         <div class="xl-chip-row" style="margin-top:6px;">
-          ${camSpaces.map((cs) => `<button class="xl-chip ${store.scene.render.inputSpace === cs ? 'active' : ''}" data-camspace="${cs}">${cs}</button>`).join('')}
+          ${camSpaces.map((cs) => `<button class="xl-chip xl-chip-sm ${store.scene.render.inputSpace === cs ? 'active' : ''}" data-camspace="${cs}">${cs}</button>`).join('')}
         </div>
         <div class="xl-chip-row" style="margin-top:8px;">
           <button class="xl-chip ${store.scene.render.freestyle ? 'active' : ''}" id="xl-toggle-freestyle">Freestyle</button>
           <button class="xl-chip ${store.scene.render.textureCache52 ? 'active' : ''}" id="xl-toggle-cache">Texture Cache 5.2</button>
-          <button class="xl-chip ${store.scene.world.mode === 'sky53' ? 'active' : ''}" id="xl-toggle-sky">Sky 5.3 + Fog</button>
+          <button class="xl-chip ${store.scene.world.mode === 'sky53' ? 'active' : ''}" id="xl-toggle-sky">Sky 5.3</button>
         </div>
       </div>
     </div>
@@ -337,10 +415,23 @@ function renderNodesTab(mat: ReturnType<typeof store.getActiveMaterial>): string
         </div>
       </div>
 
+      ${activeGraph ? `
+        <div class="xl-section-card">
+          <div class="xl-card-title">${activeGraph.name} (перетаскивайте ноды пальцем)</div>
+          <canvas id="xl-node-canvas" width="440" height="220" class="xl-visual-canvas"></canvas>
+          <div class="xl-chip-row" style="margin-top:10px;">
+            <button class="xl-chip" data-add-node="Voronoi:Voronoi 5.3">＋ Voronoi</button>
+            <button class="xl-chip" data-add-node="Raycast:Raycast (5.2)">＋ Raycast</button>
+            <button class="xl-chip" data-add-node="XPBD:XPBD Physics (5.3)">＋ XPBD</button>
+            <button class="xl-chip" data-add-node="StringNode:String Format (5.2)">＋ String 5.2</button>
+            ${activeGraph.graphKind === 'geometry' ? `<button class="xl-btn xl-btn-primary" id="xl-attach-gn">Attach GN to Mesh</button>` : ''}
+          </div>
+        </div>
+      ` : ''}
+
       ${activeGraph?.graphKind === 'shader' && mat ? `
         <div class="xl-section-card">
           <div class="xl-card-title">Shader Nodes · ${mat.name}</div>
-          <div class="xl-card-subtitle">Procedural Textures</div>
           <div class="xl-chip-row">
             ${procTex.map((pt) => `<button class="xl-chip ${mat.procTexture === pt ? 'active' : ''}" data-proc-tex="${pt}">${pt.toUpperCase()}</button>`).join('')}
           </div>
@@ -348,21 +439,6 @@ function renderNodesTab(mat: ReturnType<typeof store.getActiveMaterial>): string
             <label>Texture Scale (${mat.procScale.toFixed(1)})</label>
             <input type="range" min="1" max="16" step="0.5" value="${mat.procScale}" data-mat="procScale" />
           </div>
-        </div>
-      ` : ''}
-
-      ${activeGraph ? `
-        <div class="xl-section-card">
-          <div class="xl-card-title">${activeGraph.name}</div>
-          <div class="xl-node-graph">
-            ${activeGraph.nodes.map((n) => `
-              <div class="xl-node-box">
-                <strong>${n.label}</strong>
-                <span>${n.kind}</span>
-              </div>
-            `).join('')}
-          </div>
-          ${activeGraph.graphKind === 'geometry' ? `<button class="xl-btn xl-btn-primary" id="xl-attach-gn">Attach Geometry Nodes to Active Mesh</button>` : ''}
         </div>
       ` : ''}
     </div>
@@ -379,13 +455,27 @@ function renderAnimationTab(obj: ReturnType<typeof store.getActiveObject>): stri
         <div class="xl-chip-row">
           <button class="xl-btn xl-btn-primary" id="xl-play-btn">${store.isPlaying ? '⏸ Pause' : '▶ Play'}</button>
           <button class="xl-btn" id="xl-keyframe-btn">◆ Insert Keyframe</button>
-          <button class="xl-btn" id="xl-gsmooth-btn">F-Curve Gaussian Smooth (5.1)</button>
+          <button class="xl-btn" id="xl-gsmooth-btn">Gaussian Smooth (5.1)</button>
         </div>
         <div class="xl-slider-row">
           <label>Scrub Frame</label>
           <input type="range" min="${s.startFrame}" max="${s.endFrame}" step="1" value="${s.currentFrame}" data-live="timeline_frame" />
         </div>
+        <div class="xl-card-subtitle">F-Curve Graph Editor</div>
+        <canvas id="xl-fcurve-canvas" width="420" height="150" class="xl-visual-canvas"></canvas>
       </div>
+
+      ${obj && obj.shapeKeys.length > 0 ? `
+        <div class="xl-section-card">
+          <div class="xl-card-title">Shape Keys</div>
+          ${obj.shapeKeys.map((sk) => `
+            <div class="xl-slider-row">
+              <label>${sk.name}: ${sk.value.toFixed(2)}</label>
+              <input type="range" min="0" max="1" step="0.02" value="${sk.value}" data-sk-id="${sk.id}" />
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
 
       <div class="xl-section-card">
         <div class="xl-card-title">Armature, Rigify & IK / Drivers</div>
@@ -395,7 +485,6 @@ function renderAnimationTab(obj: ReturnType<typeof store.getActiveObject>): stri
           <button class="xl-btn" id="xl-ik-down">IK Target -Z</button>
           <button class="xl-btn" id="xl-add-driver">＋ Driver sin(frame*0.1)</button>
         </div>
-        <div class="xl-card-subtitle">Active Object Keyframes: ${obj ? Object.keys(obj.keyframes).length : 0} · Drivers: ${obj ? Object.keys(obj.drivers).length : 0}</div>
       </div>
     </div>
   `;
@@ -406,9 +495,10 @@ function renderEditorsHubTab(): string {
   const sub = store.activeSubEditor;
   const subs: Array<[SubEditorKind, string]> = [
     ['assets', 'Asset Browser & I/O'],
+    ['uv', 'UV / UDIM Editor'],
     ['vse', 'VSE 5.3 & Tracking'],
     ['spreadsheet', 'Spreadsheet'],
-    ['preferences', 'Preferences'],
+    ['preferences', 'Preferences & Console'],
   ];
 
   return `
@@ -419,19 +509,37 @@ function renderEditorsHubTab(): string {
         </div>
       </div>
 
-      ${sub === 'vse' ? `
+      ${sub === 'uv' ? `
+        <div class="xl-section-card">
+          <div class="xl-card-title">${d.uvOpsTitle}</div>
+          <canvas id="xl-uv-canvas" width="320" height="240" class="xl-visual-canvas"></canvas>
+          <div class="xl-chip-row" style="margin-top:10px;">
+            <button class="xl-btn xl-btn-primary" data-edit-op="uv_unwrap">UV Unwrap</button>
+            <button class="xl-btn" data-edit-op="uv_smart">Smart UV Project</button>
+            <button class="xl-btn" data-edit-op="uv_pack">Pack Islands</button>
+            <button class="xl-btn" data-edit-op="mark_seam">Mark Seam</button>
+          </div>
+        </div>
+      ` : sub === 'vse' ? `
         <div class="xl-section-card">
           <div class="xl-card-title">${d.vseTitle}</div>
           <div class="xl-chip-row">
-            <button class="xl-btn" id="xl-vse-blade">✂ Blade 2.0 @ Frame ${store.scene.currentFrame}</button>
-            <button class="xl-btn" id="xl-vse-ripple">Ripple Delete Last</button>
+            <button class="xl-btn" data-vse-add="video">＋ Video</button>
+            <button class="xl-btn" data-vse-add="text">＋ Text</button>
+            <button class="xl-btn" data-vse-add="audio">＋ Audio</button>
+            <button class="xl-btn" id="xl-vse-blade">✂ Blade 2.0 @ ${store.scene.currentFrame}</button>
+            <button class="xl-btn" id="xl-vse-ripple">Ripple Delete</button>
             <button class="xl-btn xl-btn-primary" id="xl-vse-otio">Export OTIO</button>
           </div>
           <div class="xl-vse-tracks">
             ${store.scene.vse.clips.map((c) => `
-              <div class="xl-vse-strip">CH${c.track} · <strong>${c.name}</strong> [${c.startFrame}..${c.startFrame + c.durationFrames}]</div>
+              <div class="xl-vse-strip ${store.selectedClipId === c.id ? 'active' : ''}" data-vse-clip="${c.id}">
+                CH${c.track} · <strong>${c.name}</strong> [${c.startFrame}..${c.startFrame + c.durationFrames}]
+              </div>
             `).join('')}
           </div>
+          <div class="xl-card-subtitle" style="margin-top:12px;">Motion Tracking (${store.scene.vse.markers.length} markers)</div>
+          <button class="xl-btn" id="xl-solve-track">${store.scene.vse.cameraSolved ? '✓ Camera Solved' : 'Solve Camera Motion'}</button>
         </div>
       ` : sub === 'spreadsheet' ? `
         <div class="xl-section-card">
@@ -461,6 +569,16 @@ function renderEditorsHubTab(): string {
             <button class="xl-btn ${store.theme === 'light' ? 'xl-btn-primary' : ''}" data-theme="light">${d.themeLight}</button>
             <button class="xl-btn ${store.locale === 'ru' ? 'xl-btn-primary' : ''}" data-lang="ru">Русский (RU)</button>
             <button class="xl-btn ${store.locale === 'en' ? 'xl-btn-primary' : ''}" data-lang="en">English (EN)</button>
+            <button class="xl-btn xl-btn-danger" id="xl-reset-scene">Reset Scene</button>
+          </div>
+          <div class="xl-card-subtitle" style="margin-top:12px;">Python / Macro Console (bpy.ops)</div>
+          <div class="xl-console-box">
+            ${store.consoleLog.map((l) => `<div>${l}</div>`).join('')}
+          </div>
+          <div class="xl-chip-row" style="margin-top:8px;">
+            <button class="xl-chip" data-macro="bpy.ops.mesh.primitive_monkey_add()">+ Suzanne</button>
+            <button class="xl-chip" data-macro="bpy.ops.object.subdivision_set(level=2)">+ Subsurf</button>
+            <button class="xl-chip" data-macro="rigify()">+ Rigify</button>
           </div>
         </div>
       ` : `
@@ -469,8 +587,10 @@ function renderEditorsHubTab(): string {
           <div class="xl-grid-3">
             ${ASSET_BROWSER_PRESETS.map((p) => `<button class="xl-btn" data-preset="${p.id}">＋ ${p.name}</button>`).join('')}
           </div>
-          <div class="xl-chip-row" style="margin-top:10px;">
-            <button class="xl-btn xl-btn-primary" data-export="obj">Export .OBJ</button>
+          <div class="xl-chip-row" style="margin-top:12px;">
+            <button class="xl-btn xl-btn-primary" id="xl-save-xl3d">${d.exportSceneBtn}</button>
+            <label class="xl-btn" style="cursor:pointer;">Load .xl3d <input type="file" accept=".xl3d,.json" id="xl-load-xl3d" hidden /></label>
+            <button class="xl-btn" data-export="obj">Export .OBJ</button>
             <button class="xl-btn" data-export="stl">Export .STL</button>
             <button class="xl-btn" data-export="ply">Export .PLY</button>
             <button class="xl-btn" data-export="glb">Export .GLB</button>
@@ -497,6 +617,10 @@ function bindInteractions(
   container.querySelectorAll('[data-esm]').forEach((el) =>
     el.addEventListener('click', () => store.setEditSelectMode((el as HTMLElement).dataset.esm as any))
   );
+  container.querySelector('#xl-prop-toggle')?.addEventListener('click', () => {
+    store.proportionalEditing = !store.proportionalEditing;
+    store.commitLiveChange();
+  });
   container.querySelectorAll('[data-edit-op]').forEach((el) =>
     el.addEventListener('click', () => store.runEditOp((el as HTMLElement).dataset.editOp!))
   );
@@ -510,6 +634,7 @@ function bindInteractions(
     el.addEventListener('click', () => {
       const s = (el as HTMLElement).dataset.sym!;
       if (s === 'invert') store.sculpt.invert = !store.sculpt.invert;
+      else if (s === 'frontFacesOnly') store.sculpt.frontFacesOnly = !(store.sculpt.frontFacesOnly !== false);
       else if (s === 'symX' || s === 'symY' || s === 'symZ') store.sculpt[s] = !store.sculpt[s];
       store.commitLiveChange();
     })
@@ -533,6 +658,10 @@ function bindInteractions(
   container.querySelector('#xl-dup-obj')?.addEventListener('click', () => store.duplicateActiveObject());
   container.querySelector('#xl-del-obj')?.addEventListener('click', () => store.deleteActiveObject());
   container.querySelector('#xl-add-shapekey')?.addEventListener('click', () => store.addShapeKey());
+
+  container.querySelectorAll('[data-light-kind]').forEach((el) =>
+    el.addEventListener('click', () => store.updateLight({ kind: (el as HTMLElement).dataset.lightKind as LightKind }))
+  );
 
   container.querySelectorAll('[data-add-mod]').forEach((el) =>
     el.addEventListener('click', () => store.addModifier((el as HTMLElement).dataset.addMod as ModifierType))
@@ -588,7 +717,6 @@ function bindInteractions(
   });
   container.querySelector('#xl-toggle-sky')?.addEventListener('click', () => {
     store.scene.world.mode = store.scene.world.mode === 'sky53' ? 'solid' : 'sky53';
-    store.scene.world.fogDensity = store.scene.world.mode === 'sky53' ? 0.15 : 0;
     store.commitLiveChange();
   });
 
@@ -596,6 +724,12 @@ function bindInteractions(
     el.addEventListener('click', () => {
       store.scene.activeNodeGraphId = (el as HTMLElement).dataset.graphId!;
       store.commitLiveChange();
+    })
+  );
+  container.querySelectorAll('[data-add-node]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const [k, lbl] = (el as HTMLElement).dataset.addNode!.split(':');
+      store.addNodeToActiveGraph(k, lbl);
     })
   );
   container.querySelectorAll('[data-proc-tex]').forEach((el) =>
@@ -614,9 +748,24 @@ function bindInteractions(
   container.querySelectorAll('[data-sub-ed]').forEach((el) =>
     el.addEventListener('click', () => store.setActiveSubEditor((el as HTMLElement).dataset.subEd as SubEditorKind))
   );
+  container.querySelectorAll('[data-vse-add]').forEach((el) =>
+    el.addEventListener('click', () => store.addVseClip((el as HTMLElement).dataset.vseAdd as any))
+  );
+  container.querySelectorAll('[data-vse-clip]').forEach((el) =>
+    el.addEventListener('click', () => {
+      store.selectedClipId = (el as HTMLElement).dataset.vseClip!;
+      store.commitLiveChange();
+    })
+  );
   container.querySelector('#xl-vse-blade')?.addEventListener('click', () => store.vseCutSelectedAtCurrentFrame());
   container.querySelector('#xl-vse-ripple')?.addEventListener('click', () => store.vseRippleDeleteLast());
   container.querySelector('#xl-vse-otio')?.addEventListener('click', () => downloadBlob('timeline.otio', exportVseToOtio(store.scene), 'application/json'));
+  container.querySelector('#xl-solve-track')?.addEventListener('click', () => store.solveMotionTracking());
+  container.querySelector('#xl-reset-scene')?.addEventListener('click', () => store.resetScene());
+  container.querySelectorAll('[data-macro]').forEach((el) =>
+    el.addEventListener('click', () => store.runMacroCommand((el as HTMLElement).dataset.macro!))
+  );
+
   container.querySelectorAll('[data-theme]').forEach((el) =>
     el.addEventListener('click', () => store.setLocaleAndTheme(undefined, (el as HTMLElement).dataset.theme as 'dark' | 'light'))
   );
@@ -634,6 +783,14 @@ function bindInteractions(
       else if (p.category === 'splat') store.addObject('pointcloud');
     })
   );
+  container.querySelector('#xl-save-xl3d')?.addEventListener('click', () => {
+    downloadBlob('project.xl3d', store.saveProjectJson(), 'application/json');
+  });
+  container.querySelector('#xl-load-xl3d')?.addEventListener('change', (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    file.text().then((txt) => store.loadProjectJson(txt));
+  });
   container.querySelectorAll('[data-export]').forEach((el) =>
     el.addEventListener('click', () => {
       const fmt = (el as HTMLElement).dataset.export!;
@@ -667,6 +824,15 @@ function bindInteractions(
         const val = parseFloat(el.value);
         store.updateActiveTransform(sec, ax, val, true);
         if (labelEl) labelEl.textContent = `${ax.toUpperCase()}: ${val.toFixed(2)}`;
+      } else if (el.dataset.modParam) {
+        const [modId, key] = el.dataset.modParam.split(':');
+        const val = parseFloat(el.value);
+        store.updateModifierParam(modId, key, val, true);
+        if (labelEl) labelEl.textContent = `${key}: ${val.toFixed(2)}`;
+      } else if (el.dataset.skId) {
+        const val = parseFloat(el.value);
+        store.updateShapeKeyValue(el.dataset.skId, val, true);
+        if (labelEl) labelEl.textContent = `${val.toFixed(2)}`;
       } else if (el.dataset.mat) {
         const k = el.dataset.mat;
         const val = el.type === 'color' ? el.value : parseFloat(el.value);
@@ -678,6 +844,28 @@ function bindInteractions(
       } else if (el.dataset.live === 'sculpt_strength') {
         store.sculpt.strength = parseFloat(el.value);
         if (labelEl) labelEl.textContent = `Strength (${store.sculpt.strength.toFixed(2)})`;
+      } else if (el.dataset.live === 'edit_amount') {
+        store.editOpAmount = parseFloat(el.value);
+        if (labelEl) labelEl.textContent = `Step / Extrude / Inset (${store.editOpAmount.toFixed(2)})`;
+      } else if (el.dataset.live === 'light_power') {
+        const val = parseFloat(el.value);
+        store.updateLight({ power: val }, true);
+        if (labelEl) labelEl.textContent = `Power (${val.toFixed(0)} W)`;
+      } else if (el.dataset.live === 'cam_focal') {
+        const val = parseFloat(el.value);
+        store.updateCameraData({ focalLength: val }, true);
+        if (labelEl) labelEl.textContent = `Focal Length (${val.toFixed(0)} mm)`;
+      } else if (el.dataset.live === 'phys_gravity') {
+        const val = parseFloat(el.value);
+        store.setPhysics({ gravityScale: val });
+      } else if (el.dataset.live === 'world_sun') {
+        const val = parseFloat(el.value);
+        store.updateWorld({ sunElevation: val }, true);
+        if (labelEl) labelEl.textContent = `Sun Elevation (${val.toFixed(0)}°)`;
+      } else if (el.dataset.live === 'world_fog') {
+        const val = parseFloat(el.value);
+        store.updateWorld({ fogDensity: val }, true);
+        if (labelEl) labelEl.textContent = `Fog Density (${val.toFixed(2)})`;
       } else if (el.dataset.live === 'paint_color') {
         store.paint.color = el.value;
       } else if (el.dataset.live === 'paint_weight') {

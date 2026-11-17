@@ -7,7 +7,7 @@ import { mountViewport } from './viewport';
 
 export function mountXL3DApp(root: HTMLElement): void {
   root.innerHTML = `
-    <div class="xl-app" id="xl-app-root">
+    <div class="xl-app" id="xl-app-root" data-panel="half">
       <header class="xl-header">
         <div class="xl-brand">
           <span class="xl-logo-dot"></span>
@@ -17,13 +17,16 @@ export function mountXL3DApp(root: HTMLElement): void {
         <div class="xl-header-actions">
           <button class="xl-btn xl-btn-icon" id="xl-undo-btn">↶</button>
           <button class="xl-btn xl-btn-icon" id="xl-redo-btn">↷</button>
-          <button class="xl-btn" id="xl-theme-btn">◐</button>
-          <button class="xl-btn" id="xl-lang-btn">RU</button>
+          <button class="xl-btn xl-btn-sm" id="xl-theme-btn">◐</button>
+          <button class="xl-btn xl-btn-sm" id="xl-lang-btn">RU</button>
         </div>
       </header>
 
       <main class="xl-workspace">
         <section class="xl-viewport-pane" id="xl-vp-pane"></section>
+        <div class="xl-splitter" id="xl-splitter">
+          <span class="xl-splitter-pill">⇕ <span id="xl-panel-size-lbl">50 / 50</span></span>
+        </div>
         <section class="xl-editor-pane" id="xl-editor-pane"></section>
       </main>
 
@@ -39,6 +42,8 @@ export function mountXL3DApp(root: HTMLElement): void {
   const vpPane = root.querySelector('#xl-vp-pane') as HTMLElement;
   const edPane = root.querySelector('#xl-editor-pane') as HTMLElement;
   const navEl = root.querySelector('#xl-bottom-nav') as HTMLElement;
+  const splitter = root.querySelector('#xl-splitter') as HTMLElement;
+  const sizeLbl = root.querySelector('#xl-panel-size-lbl') as HTMLElement;
   const modalBackdrop = root.querySelector('#xl-modal') as HTMLElement;
   const modalBody = root.querySelector('#xl-modal-body') as HTMLElement;
 
@@ -53,6 +58,14 @@ export function mountXL3DApp(root: HTMLElement): void {
 
   function renderNavAndTheme(): void {
     appRoot.setAttribute('data-theme', store.theme);
+    appRoot.setAttribute('data-panel', store.panelHeightMode);
+    sizeLbl.textContent =
+      store.panelHeightMode === 'compact'
+        ? 'Большой 3D вид'
+        : store.panelHeightMode === 'tall'
+        ? 'Развёрнутая панель'
+        : '50 / 50';
+
     navEl.style.gridTemplateColumns = `repeat(${tabs.length}, 1fr)`;
     navEl.innerHTML = tabs
       .map(
@@ -142,6 +155,8 @@ export function mountXL3DApp(root: HTMLElement): void {
   modalBackdrop.addEventListener('click', (e) => {
     if (e.target === modalBackdrop) closeModal();
   });
+
+  splitter.addEventListener('click', () => store.cyclePanelHeight());
 
   navEl.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('[data-tab]') as HTMLElement | null;
