@@ -2,7 +2,7 @@ import { saveDataUrlToDevice } from '../core/fileBridge';
 import type { ObjectType, WorkspaceTab } from '../core/types';
 import { type MeshPrimitiveKind } from '../engine/primitives';
 import { renderViewport3D } from '../engine/renderer3d';
-import { mcpBridge } from '../state/mcpBridge';
+import { DEFAULT_CLOUD_SERVER_URL, mcpBridge } from '../state/mcpBridge';
 import { store } from '../state/xl3dStore';
 import { mountEditorPanel } from './editors';
 import { mountViewport } from './viewport';
@@ -172,7 +172,7 @@ export function mountXL3DApp(root: HTMLElement): void {
         bodyHtml = `
           <div class="xl-field-group">
             <label>Cloudflare Worker URL (единый сервер БД, Auth и MCP)</label>
-            <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl)}" placeholder="https://xlone-room.your-name.workers.dev" />
+            <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl || DEFAULT_CLOUD_SERVER_URL)}" placeholder="${esc(DEFAULT_CLOUD_SERVER_URL)}" />
           </div>
           <div class="xl-chip-row" style="margin-bottom:10px;">
             <button class="xl-chip ${authMode === 'login' ? 'active' : ''}" id="xl-auth-mode-login">Вход</button>
@@ -223,7 +223,7 @@ export function mountXL3DApp(root: HTMLElement): void {
           </div>
           <div class="xl-field-group">
             <label>Cloudflare Worker URL</label>
-            <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl)}" />
+            <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl || DEFAULT_CLOUD_SERVER_URL)}" />
           </div>
           <div class="xl-section-card" style="padding:10px;">
             <div class="xl-card-subtitle" style="margin-top:0;">Личный постоянный MCP API Token</div>
@@ -320,7 +320,7 @@ export function mountXL3DApp(root: HTMLElement): void {
       bodyHtml = `
         <div class="xl-field-group">
           <label>Cloudflare Worker URL (https://xlone-room...workers.dev)</label>
-          <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl)}" placeholder="https://xlone-room.your-name.workers.dev" />
+          <input type="text" class="xl-input" id="xl-ai-url" value="${esc(mcpBridge.config.serverUrl || DEFAULT_CLOUD_SERVER_URL)}" placeholder="${esc(DEFAULT_CLOUD_SERVER_URL)}" />
         </div>
         <div class="xl-grid-2" style="gap:8px;">
           <div class="xl-field-group">
@@ -382,7 +382,7 @@ export function mountXL3DApp(root: HTMLElement): void {
     const tokInp = modalBody.querySelector('#xl-ai-token') as HTMLInputElement | null;
     const syncFields = () => {
       if (!urlInp) return;
-      const patch: Record<string, string> = { serverUrl: urlInp.value.trim() };
+      const patch: Record<string, string> = { serverUrl: urlInp.value.trim() || DEFAULT_CLOUD_SERVER_URL };
       if (!isAuthed && roomInp && tokInp) {
         patch.roomId = roomInp.value.trim() || 'default';
         patch.token = tokInp.value.trim();

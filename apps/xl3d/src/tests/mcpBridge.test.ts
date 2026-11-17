@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultXL3DScene } from '../engine/primitives';
-import { mcpBridge } from '../state/mcpBridge';
+import { DEFAULT_CLOUD_SERVER_URL, mcpBridge } from '../state/mcpBridge';
 import { store } from '../state/xl3dStore';
 
 describe('XL3D AI / MCP Bridge Client & Persistent Cloud Auth', () => {
+  it('pre-configures the default Cloudflare Worker URL out of the box', () => {
+    expect(DEFAULT_CLOUD_SERVER_URL).toBe('https://xlone-room.aleksander200620062006.workers.dev');
+    expect(mcpBridge.config.serverUrl).toBe(DEFAULT_CLOUD_SERVER_URL);
+    expect(mcpBridge.getOpenApiUrl()).toContain('https://xlone-room.aleksander200620062006.workers.dev/openapi.json?room=');
+  });
+
   it('normalizes worker URLs for MCP HTTP and OpenAPI', () => {
     mcpBridge.updateConfig({
       serverUrl: 'https://xl3d-mcp.demo.workers.dev/',
