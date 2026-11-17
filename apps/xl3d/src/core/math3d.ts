@@ -59,21 +59,18 @@ export function transformVec3(v: Vec3, loc: Vec3, rotDeg: Vec3, scl: Vec3): Vec3
   const ry = degToRad(rotDeg.y);
   const rz = degToRad(rotDeg.z);
 
-  // Rotate X
   if (rx !== 0) {
     const c = Math.cos(rx), s = Math.sin(rx);
     const ny = y * c - z * s;
     const nz = y * s + z * c;
     y = ny; z = nz;
   }
-  // Rotate Y
   if (ry !== 0) {
     const c = Math.cos(ry), s = Math.sin(ry);
     const nx = x * c + z * s;
     const nz = -x * s + z * c;
     x = nx; z = nz;
   }
-  // Rotate Z
   if (rz !== 0) {
     const c = Math.cos(rz), s = Math.sin(rz);
     const nx = x * c - y * s;
@@ -86,6 +83,46 @@ export function transformVec3(v: Vec3, loc: Vec3, rotDeg: Vec3, scl: Vec3): Vec3
 
 export function rotateOnlyVec3(v: Vec3, rotDeg: Vec3): Vec3 {
   return transformVec3(v, { x: 0, y: 0, z: 0 }, rotDeg, { x: 1, y: 1, z: 1 });
+}
+
+// Inverse Euler XYZ (Z^-1 * Y^-1 * X^-1) to convert world vectors/points accurately to object local space
+export function inverseRotateVec3(v: Vec3, rotDeg: Vec3): Vec3 {
+  let x = v.x;
+  let y = v.y;
+  let z = v.z;
+
+  const rz = -degToRad(rotDeg.z);
+  if (rz !== 0) {
+    const c = Math.cos(rz), s = Math.sin(rz);
+    const nx = x * c - y * s;
+    const ny = x * s + y * c;
+    x = nx; y = ny;
+  }
+  const ry = -degToRad(rotDeg.y);
+  if (ry !== 0) {
+    const c = Math.cos(ry), s = Math.sin(ry);
+    const nx = x * c + z * s;
+    const nz = -x * s + z * c;
+    x = nx; z = nz;
+  }
+  const rx = -degToRad(rotDeg.x);
+  if (rx !== 0) {
+    const c = Math.cos(rx), s = Math.sin(rx);
+    const ny = y * c - z * s;
+    const nz = y * s + z * c;
+    y = ny; z = nz;
+  }
+  return { x, y, z };
+}
+
+export function inverseTransformVec3(worldPt: Vec3, loc: Vec3, rotDeg: Vec3, scl: Vec3): Vec3 {
+  const rel = sub3(worldPt, loc);
+  const unrot = inverseRotateVec3(rel, rotDeg);
+  return {
+    x: unrot.x / (Math.abs(scl.x) > 1e-5 ? scl.x : 1),
+    y: unrot.y / (Math.abs(scl.y) > 1e-5 ? scl.y : 1),
+    z: unrot.z / (Math.abs(scl.z) > 1e-5 ? scl.z : 1),
+  };
 }
 
 export interface OrbitCamera {
@@ -108,12 +145,7 @@ export interface CameraBasis {
 export function getCameraBasis(cam: OrbitCamera): CameraBasis {
   const cp = Math.cos(cam.pitch);
   const sp = Math.sin(cam.pitch);
-  const cy = Math.cos(cam.yaw);
-  const sy = Math.sin(cam.yaw);
 
-  // Y-up / Z-depth friendly Blender-like orbit (Z up converted or Y up in canvas)
-  // Let's use Z-up Blender convention internally!
-  // forward points from pos to target
   const dirToCam: Vec3 = {
     x: cp * Math.cos(cam.yaw),
     y: cp * Math.sin(cam.yaw),
@@ -145,7 +177,6 @@ export function projectPoint(
 
   const f = (height * 0.5) / Math.tan(degToRad(cam.fovDeg * 0.5));
   if (cam.panoramic) {
-    // Equirectangular / Fisheye projection preview (Blender 5.3)
     const theta = Math.atan2(cx, cz);
     const phi = Math.atan2(cy, Math.hypot(cx, cz));
     return {
@@ -174,7 +205,50 @@ export function projectPoint(
   };
 }
 
-// Moller-Trumbore ray-triangle intersection for Cycles Path Tracer & Sculpt/Edit Picking
+export function screenToRay(
+  sx: number,
+  sy: number,
+  width: number,
+  height: number,
+  basis: CameraBasis,
+  cam: OrbitCamera
+): { origin: Vec3; dir: Vec3 } {
+  const f = (height * 0.5) / Math.tan(degToRad(cam.fovDeg * 0.5));
+  const dxScreen = sx - width * 0.5;
+  const dyScreen = height * 0.5 - sy;
+
+  if (cam.ortho) {
+    const scale = f / Math.max(0.5, cam.distance);
+    const cx = dxScreen / scale;
+    const cy = dyScreen / scale;
+    const origin = add3(basis.pos, add3(scale3(basis.right, cx), scale3(basis.up, cy)));
+    return { origin, dir: basis.forward };
+  }
+
+  const nx = dxScreen / f;
+  const ny = dyScreen / f;
+  const dir = norm3({
+    x: basis.forward.x + basis.right.x * nx + basis.up.x * ny,
+    y: basis.forward.y + basis.right.y * nx + basis.up.y * ny,
+    z: basis.forward.z + basis.right.z * nx + basis.up.z * ny,
+  });
+  return { origin: basis.pos, dir };
+}
+
+export function screenDeltaToWorld(
+  dx: number,
+  dy: number,
+  depth: number,
+  height: number,
+  basis: CameraBasis,
+  cam: OrbitCamera
+): Vec3 {
+  const f = (height * 0.5) / Math.tan(degToRad(cam.fovDeg * 0.5));
+  const unitsPerPx = cam.ortho ? Math.max(0.5, cam.distance) / f : Math.max(0.4, depth) / f;
+  return add3(scale3(basis.right, dx * unitsPerPx), scale3(basis.up, -dy * unitsPerPx));
+}
+
+// Moller-Trumbore ray-triangle intersection
 export function intersectRayTriangle(
   orig: Vec3,
   dir: Vec3,

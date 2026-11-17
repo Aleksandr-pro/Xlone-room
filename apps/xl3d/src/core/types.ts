@@ -332,6 +332,7 @@ export interface SculptSettings {
   voxelSize: number; // 0.05..0.5
   multiresLevel: number; // 0..3
   activeFaceSet: number;
+  frontFacesOnly?: boolean; // prevents brushing through to back faces
 }
 
 // 3. Текстурирование / Покраска и Запекание

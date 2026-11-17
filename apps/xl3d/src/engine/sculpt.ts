@@ -1,4 +1,4 @@
-import { add3, len3, norm3, scale3, sub3 } from '../core/math3d';
+import { add3, dot3, len3, norm3, scale3, sub3 } from '../core/math3d';
 import type { MeshData, SceneObject, SculptSettings, Vec3 } from '../core/types';
 import { loopCutMesh } from './editOps';
 import { recomputeNormals } from './primitives';
@@ -27,26 +27,44 @@ function mirrorPoints(pt: Vec3, sculpt: SculptSettings): Vec3[] {
   return pts;
 }
 
+function mirrorDelta(d: Vec3, idx: number, sculpt: SculptSettings): Vec3 {
+  // Mirror grab delta when symmetry is active so symmetrical strokes match naturally
+  if (idx === 0) return d;
+  return {
+    x: sculpt.symX ? -d.x : d.x,
+    y: sculpt.symY ? -d.y : d.y,
+    z: sculpt.symZ ? -d.z : d.z,
+  };
+}
+
 export function applySculptStroke(
   mesh: MeshData,
   hitLocal: Vec3,
   dragDeltaLocal: Vec3,
   sculpt: SculptSettings,
-  sceneProjectTargets: SceneObject[] = []
+  sceneProjectTargets: SceneObject[] = [],
+  camForwardLocal?: Vec3
 ): void {
   const r = Math.max(0.05, sculpt.radius);
   const strength = sculpt.strength * (sculpt.invert ? -1 : 1);
   const centers = mirrorPoints(hitLocal, sculpt);
+  const frontOnly = sculpt.frontFacesOnly !== false;
 
-  if (sculpt.dyntopo && mesh.faces.length < 360) {
+  if (sculpt.dyntopo && mesh.faces.length < 480) {
     loopCutMesh(mesh, 1);
   }
 
-  for (const center of centers) {
+  centers.forEach((center, cIdx) => {
     let avgN: Vec3 = { x: 0, y: 0, z: 0 };
     let avgPos: Vec3 = { x: 0, y: 0, z: 0 };
     let count = 0;
+
     for (const v of mesh.vertices) {
+      if (v.hidden) continue;
+      if (frontOnly && camForwardLocal && cIdx === 0) {
+        // Skip vertices pointing away from camera (dot(normal, camForward) > 0.25)
+        if (dot3(v.normal, camForwardLocal) > 0.25) continue;
+      }
       const d = len3(sub3(v.pos, center));
       if (d < r) {
         avgN = add3(avgN, v.normal);
@@ -54,12 +72,16 @@ export function applySculptStroke(
         count++;
       }
     }
-    if (count === 0) continue;
+    if (count === 0) return;
     avgN = norm3(avgN);
     avgPos = scale3(avgPos, 1 / count);
+    const localDelta = mirrorDelta(dragDeltaLocal, cIdx, sculpt);
 
     for (const v of mesh.vertices) {
       if (v.hidden) continue;
+      if (frontOnly && camForwardLocal && cIdx === 0) {
+        if (dot3(v.normal, camForwardLocal) > 0.25) continue;
+      }
       const dist = len3(sub3(v.pos, center));
       if (dist >= r) continue;
       const maskFactor = 1 - Math.max(0, Math.min(1, v.mask));
@@ -104,7 +126,7 @@ export function applySculptStroke(
         case 'snakeHook':
         case 'pose':
         case 'elasticDeform': {
-          v.pos = add3(v.pos, scale3(dragDeltaLocal, falloff * Math.max(0.2, Math.abs(strength))));
+          v.pos = add3(v.pos, scale3(localDelta, falloff * Math.max(0.35, Math.abs(strength) * 1.4)));
           break;
         }
         case 'sceneProject': {
@@ -134,7 +156,7 @@ export function applySculptStroke(
         }
       }
     }
-  }
+  });
   recomputeNormals(mesh);
 }
 
