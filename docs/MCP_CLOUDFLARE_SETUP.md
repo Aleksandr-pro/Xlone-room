@@ -21,7 +21,7 @@
    ```
    https://xl3d-mcp.<ваш-subdomain>.workers.dev
    ```
-   *(Вариант без GitHub Secrets: в панели Cloudflare `Workers & Pages → Create → Import a repository` выберите этот репозиторий, укажите Root directory `apps/xl3d-mcp` и команду деплоя `npx wrangler deploy`.)*
+   *(Вариант через Cloudflare Dashboard без GitHub Secrets: **Workers & Pages → Create → Import a repository** → выберите `Xlone-room`. Благодаря корневому `wrangler.toml` стандартные настройки Cloudflare работают «из коробки»: **Root directory**: `/`, **Build command**: `npm run build`, **Deploy command**: `npx wrangler deploy`. Тогда адрес будет вида `https://xlone-room.<ваш-subdomain>.workers.dev`.)*
 
 ---
 
