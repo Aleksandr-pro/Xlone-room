@@ -1,0 +1,22 @@
+{
+  "name": "xl3d-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "XL3D MCP & OpenAPI Server for Cloudflare Workers (Claude, ChatGPT, Grok, Desktop Agents)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "@types/node": "^22.10.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.109.0"
+  }
+}

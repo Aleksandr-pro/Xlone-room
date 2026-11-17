@@ -10,7 +10,7 @@
 
 | Приложение | Клон чего | Размер оригинала (Windows) | Размер клона (Android APK) | Статус | Скачать APK |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **XL3D** | Blender 5.x (5.0–5.3) | ~1.2 GB | **< 120 KB** | Готов (v1.2) | [Скачать XL3D.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/XL3D.apk) |
+| **XL3D** | Blender 5.x (5.0–5.3) | ~1.2 GB | **< 120 KB** | Готов (v1.3) | [Скачать XL3D.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/XL3D.apk) |
 | **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.3.1) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/download/studioeffect-v1.3.11/StudioEffect-SU.apk) |
 
 ---
@@ -29,6 +29,7 @@
 7. **Geometry Nodes 5.1–5.3 & Compositor**: `Mesh Bevel (5.2)`, `Raycast`, `Sample Sound`, `XPBD Physics`, `Point Cloud / SPZ`, GPU Compositor & String Nodes.
 8. **Анимация, Риггинг и VSE 5.3**: Keyframes, F-Curves + **Gaussian Smooth (5.1)**, Shape Keys, Drivers, **Rigify Humanoid** + 2-bone IK, VSE 5.3 (`Blade 2.0`, `Ripple Delete`, экспорт **OTIO**).
 9. **Asset Browser & Форматы**: импорт/экспорт `.OBJ`, `.STL`, `.PLY`, `.GLB`, `.SPZ`, плюс Spreadsheet, Outliner, Preferences (Dark/Light, RU/EN).
+10. **Scripting & AI MCP Bridge (v1.2–v1.3)**: встроенный редактор кода (`bpy`/`bmesh` + JS) и WebSocket-мост `🤖 AI` для управления 3D-сценой через ИИ-агентов (Claude, ChatGPT Custom GPT Actions, Grok, Claude Code/Desktop) на базе бесплатного **Cloudflare Worker** (`apps/xl3d-mcp`) — см. [`docs/MCP_CLOUDFLARE_SETUP.md`](./docs/MCP_CLOUDFLARE_SETUP.md).
 
 ---
 
