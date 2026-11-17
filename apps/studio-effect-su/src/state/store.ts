@@ -1,6 +1,7 @@
 import { stopAllAudio, syncAudioPlayback } from '../core/audio';
 import { createComposition, createEffect, createLayer, kf, prop, uid } from '../core/factories';
 import { HistoryStack } from '../core/history';
+import { detectInitialLocale, getDict, type Locale, saveLocale, type TranslationDict } from '../core/i18n';
 import { evaluateKeyframes, evaluateProp } from '../core/interpolation';
 import { createNeonIntroProject } from '../core/presets';
 import type {
@@ -45,6 +46,7 @@ export interface StoreState {
   viewportZoom: number;
   viewportPanX: number;
   viewportPanY: number;
+  locale: Locale;
 }
 
 type Listener = () => void;
@@ -78,7 +80,11 @@ class StudioStore {
       viewportZoom: 1,
       viewportPanX: 0,
       viewportPanY: 0,
+      locale: detectInitialLocale(),
     };
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = this.state.locale;
+    }
   }
 
   private loadFromStorage(): StudioProject | null {
@@ -111,6 +117,27 @@ class StudioStore {
 
   getState(): StoreState {
     return this.state;
+  }
+
+  getLocale(): Locale {
+    return this.state.locale;
+  }
+
+  t(): TranslationDict {
+    return getDict(this.state.locale);
+  }
+
+  setLocale(locale: Locale): void {
+    this.state.locale = locale;
+    saveLocale(locale);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = locale;
+    }
+    this.emit();
+  }
+
+  toggleLocale(): void {
+    this.setLocale(this.state.locale === 'ru' ? 'en' : 'ru');
   }
 
   getActiveComp(): Composition {

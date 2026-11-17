@@ -19,11 +19,12 @@ export function mountApp(root: HTMLElement): void {
           </div>
         </div>
         <div class="topbar-actions">
+          <button class="pill-btn" data-top-lang title="Переключить язык / Switch Language">RU</button>
           <button class="icon-btn" data-top-undo title="Undo">${ICONS.undo}</button>
           <button class="icon-btn" data-top-redo title="Redo">${ICONS.redo}</button>
           <button class="icon-btn" data-top-presets title="Demo Presets & Projects">${ICONS.presets}</button>
           <button class="icon-btn" data-top-comp title="Composition Settings">${ICONS.settings}</button>
-          <button class="btn-primary btn-sm" data-top-export>${ICONS.download}<span>Export</span></button>
+          <button class="btn-primary btn-sm" data-top-export>${ICONS.download}<span data-top-export-label>Экспорт</span></button>
         </div>
       </header>
 
@@ -32,10 +33,10 @@ export function mountApp(root: HTMLElement): void {
 
         <section class="pane-bottom">
           <nav class="tab-bar">
-            <button class="tab-btn" data-tab="timeline">${ICONS.layers}<span>Timeline</span></button>
-            <button class="tab-btn" data-tab="inspector">${ICONS.sliders}<span>Inspector</span></button>
-            <button class="tab-btn" data-tab="effects">${ICONS.fx}<span>Effects</span></button>
-            <button class="tab-btn" data-tab="graph">${ICONS.graph}<span>Graph</span></button>
+            <button class="tab-btn" data-tab="timeline">${ICONS.layers}<span data-tab-label="timeline">Таймлайн</span></button>
+            <button class="tab-btn" data-tab="inspector">${ICONS.sliders}<span data-tab-label="inspector">Инспектор</span></button>
+            <button class="tab-btn" data-tab="effects">${ICONS.fx}<span data-tab-label="effects">Эффекты</span></button>
+            <button class="tab-btn" data-tab="graph">${ICONS.graph}<span data-tab-label="graph">График</span></button>
           </nav>
           <div class="tab-panels">
             <div class="tab-panel" data-panel="timeline"></div>
@@ -62,14 +63,20 @@ export function mountApp(root: HTMLElement): void {
   mountEffectsPanel(effectsEl);
   mountGraphEditor(graphEl);
 
+  const langBtn = root.querySelector<HTMLButtonElement>('[data-top-lang]')!;
+  const hubBtn = root.querySelector<HTMLElement>('[data-top-hub]')!;
   const undoBtn = root.querySelector<HTMLButtonElement>('[data-top-undo]')!;
   const redoBtn = root.querySelector<HTMLButtonElement>('[data-top-redo]')!;
+  const presetsBtn = root.querySelector<HTMLButtonElement>('[data-top-presets]')!;
+  const compBtn = root.querySelector<HTMLButtonElement>('[data-top-comp]')!;
+  const exportLabel = root.querySelector<HTMLElement>('[data-top-export-label]')!;
 
+  langBtn.addEventListener('click', () => store.toggleLocale());
   undoBtn.addEventListener('click', () => store.undo());
   redoBtn.addEventListener('click', () => store.redo());
-  root.querySelector('[data-top-hub]')?.addEventListener('click', () => modals.openXloneHub());
-  root.querySelector('[data-top-presets]')?.addEventListener('click', () => modals.openProjectsAndPresets());
-  root.querySelector('[data-top-comp]')?.addEventListener('click', () => modals.openCompSettings());
+  hubBtn.addEventListener('click', () => modals.openXloneHub());
+  presetsBtn.addEventListener('click', () => modals.openProjectsAndPresets());
+  compBtn.addEventListener('click', () => modals.openCompSettings());
   root.querySelector('[data-top-export]')?.addEventListener('click', () => modals.openExport());
 
   root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
@@ -101,8 +108,27 @@ export function mountApp(root: HTMLElement): void {
 
   function syncShell(): void {
     const state = store.getState();
+    const tr = store.t();
     undoBtn.disabled = !store.canUndo();
     redoBtn.disabled = !store.canRedo();
+
+    langBtn.textContent = state.locale.toUpperCase();
+    langBtn.title = tr.langTooltip;
+    hubBtn.title = tr.hubTooltip;
+    undoBtn.title = tr.undo;
+    redoBtn.title = tr.redo;
+    presetsBtn.title = tr.presetsTooltip;
+    compBtn.title = tr.compSettingsTooltip;
+    exportLabel.textContent = tr.exportBtn;
+
+    const tlLabel = root.querySelector<HTMLElement>('[data-tab-label="timeline"]');
+    const inspLabel = root.querySelector<HTMLElement>('[data-tab-label="inspector"]');
+    const fxLabel = root.querySelector<HTMLElement>('[data-tab-label="effects"]');
+    const grLabel = root.querySelector<HTMLElement>('[data-tab-label="graph"]');
+    if (tlLabel) tlLabel.textContent = tr.tabTimeline;
+    if (inspLabel) inspLabel.textContent = tr.tabInspector;
+    if (fxLabel) fxLabel.textContent = tr.tabEffects;
+    if (grLabel) grLabel.textContent = tr.tabGraph;
 
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => {
       b.classList.toggle('active', b.dataset.tab === state.activeTab);

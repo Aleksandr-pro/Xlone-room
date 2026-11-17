@@ -47,6 +47,7 @@ export function mountTimeline(
 ): void {
   function render(): void {
     const state = store.getState();
+    const tr = store.t();
     const comp = store.getActiveComp();
     const zoom = state.timelineZoom;
     const trackWidth = Math.max(320, Math.ceil(comp.duration * zoom) + 40);
@@ -76,23 +77,23 @@ export function mountTimeline(
       leftRowsHtml += `
         <div class="tl-layer-row ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
           <span class="tl-color-bar" style="background:${layer.colorLabel}"></span>
-          <button class="tl-mini-btn" data-toggle-expand="${layer.id}" title="Expand Transform">
+          <button class="tl-mini-btn" data-toggle-expand="${layer.id}" title="${tr.expandTransform}">
             ${layer.expanded ? ICONS.chevronDown : ICONS.chevronRight}
           </button>
           <span class="tl-type-badge" style="border-color:${layer.colorLabel}">${typeTag(layer)}</span>
           <span class="tl-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
           <div class="tl-layer-flags">
-            ${hasMask ? `<span class="tl-mini-pill mask" title="Mask Active">M</span>` : ''}
-            ${hasMatte ? `<span class="tl-mini-pill matte" title="Track Matte">MAT</span>` : ''}
-            ${fxCount > 0 ? `<span class="tl-fx-pill" title="Active Effects">fx${fxCount}</span>` : ''}
+            ${hasMask ? `<span class="tl-mini-pill mask" title="${tr.maskActiveTitle}">M</span>` : ''}
+            ${hasMatte ? `<span class="tl-mini-pill matte" title="${tr.matteActiveTitle}">MAT</span>` : ''}
+            ${fxCount > 0 ? `<span class="tl-fx-pill" title="${tr.activeFxTitle}">fx${fxCount}</span>` : ''}
             ${
               layer.type !== 'audio' && layer.type !== 'adjustment'
-                ? `<button class="tl-flag-btn d3 ${layer.is3D ? 'on' : ''}" data-toggle-3d="${layer.id}" title="3D Layer">3D</button>`
+                ? `<button class="tl-flag-btn d3 ${layer.is3D ? 'on' : ''}" data-toggle-3d="${layer.id}" title="${tr.layer3dTitle}">3D</button>`
                 : ''
             }
-            <button class="tl-flag-btn ${layer.visible ? 'on' : ''}" data-toggle-vis="${layer.id}" title="Visibility">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
-            <button class="tl-flag-btn solo ${layer.solo ? 'on' : ''}" data-toggle-solo="${layer.id}" title="Solo">S</button>
-            <button class="tl-flag-btn ${layer.locked ? 'on' : ''}" data-toggle-lock="${layer.id}" title="Lock">${layer.locked ? ICONS.lock : ICONS.unlock}</button>
+            <button class="tl-flag-btn ${layer.visible ? 'on' : ''}" data-toggle-vis="${layer.id}" title="${tr.visibilityTitle}">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
+            <button class="tl-flag-btn solo ${layer.solo ? 'on' : ''}" data-toggle-solo="${layer.id}" title="${tr.soloTitle}">S</button>
+            <button class="tl-flag-btn ${layer.locked ? 'on' : ''}" data-toggle-lock="${layer.id}" title="${tr.lockTitle}">${layer.locked ? ICONS.lock : ICONS.unlock}</button>
           </div>
         </div>
       `;
@@ -128,10 +129,10 @@ export function mountTimeline(
 
           leftRowsHtml += `
             <div class="tl-prop-row ${isRowSel ? 'selected' : ''}" data-select-prop="${layer.id}:${row.key}">
-              <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-sw="${layer.id}:${row.key}" title="Toggle Keyframing">${ICONS.stopwatch}</button>
-              <span class="tl-prop-name">${row.label}</span>
+              <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-sw="${layer.id}:${row.key}" title="${tr.toggleKfTitle}">${ICONS.stopwatch}</button>
+              <span class="tl-prop-name">${tr.propNames[row.key] ?? row.label}</span>
               <span class="tl-prop-val">${Math.round(curVal * 10) / 10}${row.unit}</span>
-              <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-kf-toggle="${layer.id}:${row.key}" title="Add/Remove Keyframe">${ICONS.diamond}</button>
+              <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-kf-toggle="${layer.id}:${row.key}" title="${tr.addRemoveKfTitle}">${ICONS.diamond}</button>
             </div>
           `;
 
@@ -156,7 +157,7 @@ export function mountTimeline(
     const markersHtml = (comp.markers ?? [])
       .map(
         (m) =>
-          `<button class="tl-marker" style="left:${Math.round(m.time * zoom)}px" data-marker-jump="${m.id}:${m.time}" title="${escapeHtml(m.label)} (${m.time}s) — dbl-click to remove">${escapeHtml(m.label)}</button>`
+          `<button class="tl-marker" style="left:${Math.round(m.time * zoom)}px" data-marker-jump="${m.id}:${m.time}" title="${escapeHtml(tr.markerTooltip(m.label, m.time))}">${escapeHtml(m.label)}</button>`
       )
       .join('');
 
@@ -164,25 +165,25 @@ export function mountTimeline(
       <div class="tl-shell">
         <div class="tl-toolbar">
           <div class="tl-toolbar-group">
-            <button class="btn-primary btn-sm" data-tl-add>+ Layer</button>
-            <button class="btn-ghost btn-sm" data-tl-split title="Split Selected Layer at CTI">Split</button>
-            <button class="btn-ghost btn-sm" data-tl-marker title="Add Timeline Marker">+ M</button>
+            <button class="btn-primary btn-sm" data-tl-add>${tr.addLayerBtn}</button>
+            <button class="btn-ghost btn-sm" data-tl-split title="${tr.splitTitle}">${tr.splitBtn}</button>
+            <button class="btn-ghost btn-sm" data-tl-marker title="${tr.addMarkerTitle}">${tr.addMarkerBtn}</button>
           </div>
           <div class="tl-toolbar-group">
             <button class="btn-ghost btn-sm" data-tl-zoom="-25">−</button>
-            <span class="tl-zoom-label">Zoom</span>
+            <span class="tl-zoom-label">${tr.zoomLabel}</span>
             <button class="btn-ghost btn-sm" data-tl-zoom="25">+</button>
           </div>
           <div class="tl-toolbar-group">
-            <button class="btn-ghost btn-sm" data-tl-kf-nav="-1" title="Prev Keyframe">◀ ◆</button>
-            <button class="btn-ghost btn-sm" data-tl-kf-nav="1" title="Next Keyframe">◆ ▶</button>
+            <button class="btn-ghost btn-sm" data-tl-kf-nav="-1" title="${tr.prevKfTitle}">◀ ◆</button>
+            <button class="btn-ghost btn-sm" data-tl-kf-nav="1" title="${tr.nextKfTitle}">◆ ▶</button>
           </div>
         </div>
         <div class="tl-split">
           <div class="tl-left" data-tl-left>
-            <div class="tl-left-header">Layers (${comp.layers.length})</div>
+            <div class="tl-left-header">${tr.layersHeader(comp.layers.length)}</div>
             <div class="tl-left-body" data-tl-left-body>
-              ${leftRowsHtml || '<div class="empty-hint">Нет слоёв. Нажмите + Layer</div>'}
+              ${leftRowsHtml || `<div class="empty-hint">${tr.noLayersHint}</div>`}
             </div>
           </div>
           <div class="tl-right" data-tl-right>

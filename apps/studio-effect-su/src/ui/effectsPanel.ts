@@ -1,3 +1,4 @@
+import { EFFECT_I18N_RU } from '../core/i18n';
 import { evaluateProp } from '../core/interpolation';
 import type { EffectType } from '../core/types';
 import { EFFECT_CATALOG, getEffectDef } from '../engine/effectCatalog';
@@ -7,11 +8,13 @@ import { ICONS } from './icons';
 export function mountEffectsPanel(container: HTMLElement): void {
   function render(): void {
     const state = store.getState();
+    const tr = store.t();
+    const isRu = state.locale === 'ru';
     const comp = store.getActiveComp();
     const layer = store.getSelectedLayer();
 
     if (!layer) {
-      container.innerHTML = `<div class="panel-empty">Выберите слой, чтобы добавить или настроить эффекты (FX).</div>`;
+      container.innerHTML = `<div class="panel-empty">${tr.selectLayerFxHint}</div>`;
       return;
     }
 
@@ -21,6 +24,9 @@ export function mountEffectsPanel(container: HTMLElement): void {
       ? layer.effects
           .map((fx) => {
             const def = getEffectDef(fx.type);
+            const ruDef = isRu ? EFFECT_I18N_RU[fx.type] : null;
+            const fxTitle = ruDef?.name ?? fx.name;
+            const fxCat = ruDef?.category ?? def.category;
             const paramsHtml = def.params
               .map((meta) => {
                 const prop = fx.params[meta.key];
@@ -30,12 +36,13 @@ export function mountEffectsPanel(container: HTMLElement): void {
                     ) / 10
                   : meta.defaultValue;
                 const hasKfs = (prop?.keyframes.length ?? 0) > 0;
+                const pLabel = ruDef?.params[meta.key] ?? meta.label;
 
                 return `
                   <div class="fx-param">
                     <div class="fx-param-head">
-                      <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-fx-sw="${fx.id}:${meta.key}" title="Keyframe">${ICONS.stopwatch}</button>
-                      <span>${meta.label}</span>
+                      <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-fx-sw="${fx.id}:${meta.key}" title="${tr.keyframeTooltip}">${ICONS.stopwatch}</button>
+                      <span>${pLabel}</span>
                       <span class="fx-val">${val}${meta.unit ?? ''}</span>
                     </div>
                     <input type="range" class="ae-slider" data-fx-range="${fx.id}:${meta.key}" min="${meta.min}" max="${meta.max}" step="${meta.step}" value="${val}" />
@@ -48,39 +55,40 @@ export function mountEffectsPanel(container: HTMLElement): void {
               <div class="fx-card ${fx.enabled ? '' : 'disabled'}">
                 <div class="fx-card-head">
                   <button class="fx-toggle ${fx.enabled ? 'on' : ''}" data-fx-toggle="${fx.id}">fx</button>
-                  <span class="fx-name">${fx.name}</span>
-                  <span class="fx-cat">${def.category}</span>
-                  <button class="icon-btn" data-fx-up="${fx.id}" title="Move Effect Up">${ICONS.up}</button>
-                  <button class="icon-btn" data-fx-down="${fx.id}" title="Move Effect Down">${ICONS.down}</button>
-                  <button class="icon-btn danger" data-fx-del="${fx.id}" title="Remove Effect">${ICONS.trash}</button>
+                  <span class="fx-name">${fxTitle}</span>
+                  <span class="fx-cat">${fxCat}</span>
+                  <button class="icon-btn" data-fx-up="${fx.id}" title="${tr.moveFxUp}">${ICONS.up}</button>
+                  <button class="icon-btn" data-fx-down="${fx.id}" title="${tr.moveFxDown}">${ICONS.down}</button>
+                  <button class="icon-btn danger" data-fx-del="${fx.id}" title="${tr.removeFx}">${ICONS.trash}</button>
                 </div>
                 <div class="fx-params-body">${paramsHtml}</div>
               </div>
             `;
           })
           .join('')
-      : `<div class="empty-hint">У слоя «${escapeHtml(layer.name)}» пока нет эффектов. Выберите ниже!</div>`;
+      : `<div class="empty-hint">${tr.noEffectsHint(escapeHtml(layer.name))}</div>`;
 
-    const catalogHtml = EFFECT_CATALOG.map(
-      (def) => `
+    const catalogHtml = EFFECT_CATALOG.map((def) => {
+      const ruDef = isRu ? EFFECT_I18N_RU[def.type] : null;
+      return `
         <button class="fx-add-tile" data-fx-add="${def.type}">
           <div class="fx-tile-top">
-            <span class="fx-tile-name">${def.name}</span>
-            <span class="fx-tile-cat">${def.category}</span>
+            <span class="fx-tile-name">${ruDef?.name ?? def.name}</span>
+            <span class="fx-tile-cat">${ruDef?.category ?? def.category}</span>
           </div>
-          <div class="fx-tile-desc">${def.description}</div>
+          <div class="fx-tile-desc">${ruDef?.description ?? def.description}</div>
         </button>
-      `
-    ).join('');
+      `;
+    }).join('');
 
     container.innerHTML = `
       <div class="fx-wrap">
         <div class="insp-card">
-          <div class="insp-card-title">Active Effects Stack — ${escapeHtml(layer.name)}</div>
+          <div class="insp-card-title">${tr.activeEffectsStack(escapeHtml(layer.name))}</div>
           ${activeEffectsHtml}
         </div>
         <div class="insp-card">
-          <div class="insp-card-title">Effects & Presets Library (${EFFECT_CATALOG.length})</div>
+          <div class="insp-card-title">${tr.effectsLibrary(EFFECT_CATALOG.length)}</div>
           <div class="fx-catalog-grid">
             ${catalogHtml}
           </div>

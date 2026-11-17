@@ -1,5 +1,6 @@
 import { analyzeAudioBuffer, createBuiltInSynthBeat } from '../core/audio';
 import { createComposition } from '../core/factories';
+import { PRESET_I18N_RU } from '../core/i18n';
 import { DEMO_PRESETS } from '../core/presets';
 import type { StudioProject } from '../core/types';
 import {
@@ -43,51 +44,52 @@ export class ModalManager {
   }
 
   openAddLayer(): void {
+    const tr = store.t();
     this.open(
-      'New Layer',
+      tr.modalNewLayer,
       `
       <div class="layer-picker-grid">
         <button class="picker-tile" data-add-type="text">
           <span class="picker-badge" style="background:#ef4444">T</span>
-          <strong>Text Layer</strong>
-          <small>Анимированный текст и пресеты</small>
+          <strong>${tr.layerTextName}</strong>
+          <small>${tr.layerTextDesc}</small>
         </button>
         <button class="picker-tile" data-add-type="shape">
           <span class="picker-badge" style="background:#22c55e">★</span>
-          <strong>Shape Layer</strong>
-          <small>Круги, рамки, звёзды, фигуры</small>
+          <strong>${tr.layerShapeName}</strong>
+          <small>${tr.layerShapeDesc}</small>
         </button>
         <button class="picker-tile" data-add-type="solid">
           <span class="picker-badge" style="background:#d946ef">■</span>
-          <strong>Solid / BG</strong>
-          <small>Сплошной фон или градиент</small>
+          <strong>${tr.layerSolidName}</strong>
+          <small>${tr.layerSolidDesc}</small>
         </button>
         <button class="picker-tile" data-add-type="adjustment">
           <span class="picker-badge" style="background:#a855f7">ADJ</span>
-          <strong>Adjustment Layer</strong>
-          <small>Эффекты ко всем слоям ниже</small>
+          <strong>${tr.layerAdjName}</strong>
+          <small>${tr.layerAdjDesc}</small>
         </button>
         <button class="picker-tile" data-add-type="null">
           <span class="picker-badge" style="background:#f59e0b">NUL</span>
-          <strong>Null Object</strong>
-          <small>Контроллер привязки (Parenting)</small>
+          <strong>${tr.layerNullName}</strong>
+          <small>${tr.layerNullDesc}</small>
         </button>
         <label class="picker-tile file-tile">
           <span class="picker-badge" style="background:#38bdf8">IMG</span>
-          <strong>Photo / Video</strong>
-          <small>Импорт из галереи телефона</small>
+          <strong>${tr.layerMediaName}</strong>
+          <small>${tr.layerMediaDesc}</small>
           <input type="file" accept="image/*,video/*" data-media-input hidden />
         </label>
         <label class="picker-tile file-tile">
           <span class="picker-badge" style="background:#10b981">♪</span>
-          <strong>Audio Track</strong>
-          <small>Музыка MP3 / WAV с волной</small>
+          <strong>${tr.layerAudioName}</strong>
+          <small>${tr.layerAudioDesc}</small>
           <input type="file" accept="audio/*" data-audio-input hidden />
         </label>
         <button class="picker-tile" data-add-synth-beat>
           <span class="picker-badge" style="background:#10b981">BPM</span>
-          <strong>Synth Beat 128 BPM</strong>
-          <small>Встроенный бит для beat-анимации</small>
+          <strong>${tr.layerSynthName}</strong>
+          <small>${tr.layerSynthDesc}</small>
         </button>
       </div>
       `,
@@ -189,44 +191,45 @@ export class ModalManager {
 
   openCompSettings(): void {
     const comp = store.getActiveComp();
+    const tr = store.t();
     this.open(
-      'Composition Settings',
+      tr.modalCompSettings,
       `
       <div class="chip-row mb-10">
-        <button class="chip-btn" data-preset-dim="1080x1920">9:16 Reels (1080×1920)</button>
-        <button class="chip-btn" data-preset-dim="1920x1080">16:9 HD (1920×1080)</button>
-        <button class="chip-btn" data-preset-dim="1080x1080">1:1 Square (1080×1080)</button>
+        <button class="chip-btn" data-preset-dim="1080x1920">${tr.dimReels}</button>
+        <button class="chip-btn" data-preset-dim="1920x1080">${tr.dimHD}</button>
+        <button class="chip-btn" data-preset-dim="1080x1080">${tr.dimSquare}</button>
       </div>
       <div class="grid-2">
         <div>
-          <label class="field-label">Name</label>
+          <label class="field-label">${tr.compName}</label>
           <input type="text" class="ae-input" data-cs="name" value="${comp.name}" />
         </div>
         <div>
-          <label class="field-label">FPS</label>
+          <label class="field-label">${tr.fpsLabel}</label>
           <select class="ae-select" data-cs="fps">
             ${[24, 30, 60].map((f) => `<option value="${f}" ${comp.fps === f ? 'selected' : ''}>${f} fps</option>`).join('')}
           </select>
         </div>
         <div>
-          <label class="field-label">Width (px)</label>
+          <label class="field-label">${tr.widthPx}</label>
           <input type="number" class="ae-input" data-cs="width" value="${comp.width}" min="240" max="3840" />
         </div>
         <div>
-          <label class="field-label">Height (px)</label>
+          <label class="field-label">${tr.heightPx}</label>
           <input type="number" class="ae-input" data-cs="height" value="${comp.height}" min="240" max="3840" />
         </div>
         <div>
-          <label class="field-label">Duration (sec)</label>
+          <label class="field-label">${tr.durationSec}</label>
           <input type="number" class="ae-input" data-cs="duration" value="${comp.duration}" min="1" max="120" step="0.5" />
         </div>
         <div>
-          <label class="field-label">BG Color</label>
+          <label class="field-label">${tr.bgColor}</label>
           <input type="color" class="ae-color" data-cs="backgroundColor" value="${comp.backgroundColor}" />
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-primary" data-cs-save>Apply Settings</button>
+        <button class="btn-primary" data-cs-save>${tr.applySettings}</button>
       </div>
       `,
       (body) => {
@@ -256,6 +259,8 @@ export class ModalManager {
 
   openProjectsAndPresets(): void {
     const state = store.getState();
+    const tr = store.t();
+    const isRu = state.locale === 'ru';
     const compsHtml = state.project.compositions
       .map(
         (c) => `
@@ -266,36 +271,37 @@ export class ModalManager {
       )
       .join('');
 
-    const presetsHtml = DEMO_PRESETS.map(
-      (p) => `
+    const presetsHtml = DEMO_PRESETS.map((p) => {
+      const ruP = isRu ? PRESET_I18N_RU[p.id] : null;
+      return `
       <button class="preset-card" data-load-preset="${p.id}">
-        <strong>${p.title}</strong>
-        <small>${p.subtitle}</small>
+        <strong>${ruP?.title ?? p.title}</strong>
+        <small>${ruP?.subtitle ?? p.subtitle}</small>
       </button>
-    `
-    ).join('');
+    `;
+    }).join('');
 
     this.open(
-      'Compositions, Projects & Presets',
+      tr.modalProjectsTitle,
       `
-      <div class="insp-card-title">Compositions in Project</div>
+      <div class="insp-card-title">${tr.compsInProject}</div>
       <div class="chip-row mb-10">
         ${compsHtml}
-        <button class="chip-btn" data-add-comp>+ New Comp</button>
+        <button class="chip-btn" data-add-comp>${tr.newCompBtn}</button>
       </div>
       <div class="modal-divider"></div>
-      <div class="insp-card-title">Demo Templates</div>
+      <div class="insp-card-title">${tr.demoTemplates}</div>
       <div class="preset-list">
         ${presetsHtml}
       </div>
       <div class="modal-divider"></div>
       <div class="btn-row">
-        <button class="btn-ghost" data-new-blank>New Empty Project</button>
+        <button class="btn-ghost" data-new-blank>${tr.newBlankProject}</button>
         <label class="btn-ghost file-btn">
-          Import .suep
+          ${tr.importSuep}
           <input type="file" accept=".suep,.json,application/json" data-import-suep hidden />
         </label>
-        <button class="btn-primary" data-export-suep>Save .suep</button>
+        <button class="btn-primary" data-export-suep>${tr.saveSuep}</button>
       </div>
       `,
       (body) => {
@@ -329,11 +335,11 @@ export class ModalManager {
         });
 
         body.querySelector('[data-new-blank]')?.addEventListener('click', () => {
-          const comp = createComposition('Blank Comp (9:16)', 1080, 1920, 30, 5);
+          const comp = createComposition(tr.blankCompName, 1080, 1920, 30, 5);
           store.loadProject({
-            version: '1.1.0',
+            version: '1.2.0',
             app: 'StudioEffect(SU)',
-            name: 'Untitled Project',
+            name: tr.untitledProject,
             activeCompId: comp.id,
             compositions: [comp],
           });
@@ -357,7 +363,7 @@ export class ModalManager {
                 this.close();
               }
             } catch {
-              alert('Некорректный файл проекта .suep');
+              alert(tr.invalidSuepAlert);
             }
           };
           reader.readAsText(f);
@@ -367,29 +373,30 @@ export class ModalManager {
   }
 
   openXloneHub(): void {
+    const tr = store.t();
     this.open(
-      'Xlone-room • StudioEffect(SU) v1.2',
+      tr.modalHubTitle,
       `
       <div class="export-info">
         <div><b>Xlone-room Project</b></div>
-        <small>Сверхлёгкие нативные Android-клоны (APK) тяжёлых программ для Windows.</small>
+        <small>${tr.hubTagline}</small>
       </div>
       <div class="preset-list mt-10">
         <div class="preset-card">
-          <strong>StudioEffect(SU) v1.2.0 — Клон Adobe After Effects</strong>
-          <small>Вес APK: ~70 KB (против ~4.5 GB оригинала — в 65,000+ раз легче!)</small>
-          <small>3D слои (X/Y/Z) • Audio/Beat Sync • Маски и Track Matte • Pre-Compose • 20 VFX • AE Expressions</small>
+          <strong>${tr.hubCardTitle}</strong>
+          <small>${tr.hubCardSize}</small>
+          <small>${tr.hubCardFeatures}</small>
         </div>
         <div class="preset-card">
-          <strong>Горячие действия на телефоне</strong>
-          <small>• Тап по <b>3D</b> на слое — включает Rotate X / Rotate Y / Z Depth</small>
-          <small>• <b>Split</b> на таймлайне — разрезает слой по текущему бегунку</small>
-          <small>• <b>+ M</b> — добавляет маркер бита (двойной тап удаляет)</small>
+          <strong>${tr.hubTipsTitle}</strong>
+          <small>${tr.hubTip3d}</small>
+          <small>${tr.hubTipSplit}</small>
+          <small>${tr.hubTipMarker}</small>
         </div>
       </div>
       <div class="btn-row mt-12">
-        <a class="btn-primary" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk" target="_blank" rel="noopener">Скачать свежий APK</a>
-        <a class="btn-ghost" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room" target="_blank" rel="noopener">GitHub Xlone-room</a>
+        <a class="btn-primary" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk" target="_blank" rel="noopener">${tr.hubDownloadApk}</a>
+        <a class="btn-ghost" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room" target="_blank" rel="noopener">${tr.hubGithub}</a>
       </div>
       `
     );
@@ -397,11 +404,12 @@ export class ModalManager {
 
   openExport(): void {
     const comp = store.getActiveComp();
+    const tr = store.t();
     const allComps = store.getState().project.compositions;
     let abortCtrl: AbortController | null = null;
 
     this.open(
-      'Render & Export',
+      tr.modalExportTitle,
       `
       <div class="export-info">
         <div><b>${comp.name}</b></div>
@@ -409,32 +417,32 @@ export class ModalManager {
       </div>
       <div class="grid-2 mt-10">
         <div>
-          <label class="field-label">Resolution</label>
+          <label class="field-label">${tr.exportResolution}</label>
           <select class="ae-select" data-exp-scale>
-            <option value="0.5">Half (Fast Mobile)</option>
-            <option value="1" selected>Full (100%)</option>
+            <option value="0.5">${tr.exportHalf}</option>
+            <option value="1" selected>${tr.exportFull}</option>
           </select>
         </div>
         <div>
-          <label class="field-label">Bitrate</label>
+          <label class="field-label">${tr.exportBitrate}</label>
           <select class="ae-select" data-exp-bitrate>
-            <option value="4">4 Mbps (Light)</option>
-            <option value="8" selected>8 Mbps (High)</option>
-            <option value="14">14 Mbps (Master)</option>
+            <option value="4">${tr.exportBitrateLight}</option>
+            <option value="8" selected>${tr.exportBitrateHigh}</option>
+            <option value="14">${tr.exportBitrateMaster}</option>
           </select>
         </div>
       </div>
       <div class="export-progress hidden" data-exp-prog-box>
         <div class="prog-bar"><div class="prog-fill" data-exp-fill style="width:0%"></div></div>
-        <div class="prog-label" data-exp-status>Preparing render...</div>
+        <div class="prog-label" data-exp-status>${tr.exportPreparing}</div>
       </div>
       <div class="btn-row mt-12">
-        <button class="btn-primary" data-exp-video>Render Video</button>
-        <button class="btn-ghost" data-exp-png>Save PNG Frame</button>
-        <button class="btn-ghost" data-exp-proj>Save .suep</button>
+        <button class="btn-primary" data-exp-video>${tr.exportRenderVideo}</button>
+        <button class="btn-ghost" data-exp-png>${tr.exportSavePng}</button>
+        <button class="btn-ghost" data-exp-proj>${tr.exportSaveProj}</button>
       </div>
       <div class="export-note">
-        В Android APK готовые файлы сохраняются прямо в <b>Downloads/StudioEffectSU</b>.
+        ${tr.exportAndroidNote}
       </div>
       `,
       (body) => {
@@ -450,7 +458,7 @@ export class ModalManager {
           }
           store.stopPlay();
           abortCtrl = new AbortController();
-          renderBtn.textContent = 'Cancel Render';
+          renderBtn.textContent = tr.exportCancelRender;
           progBox.classList.remove('hidden');
 
           const scale = Number(body.querySelector<HTMLSelectElement>('[data-exp-scale]')!.value);
@@ -464,15 +472,15 @@ export class ModalManager {
               signal: abortCtrl.signal,
               onProgress: (p, frame, total) => {
                 fillEl.style.width = `${Math.round(p * 100)}%`;
-                statusEl.textContent = `Rendering frame ${frame} / ${total} (${Math.round(p * 100)}%)`;
+                statusEl.textContent = tr.exportRenderingFrame(frame, total, Math.round(p * 100));
               },
             });
-            statusEl.textContent = `Готово: ${res.fileName} (${(res.sizeBytes / 1024).toFixed(0)} KB)`;
+            statusEl.textContent = tr.exportDone(res.fileName, (res.sizeBytes / 1024).toFixed(0));
           } catch (err) {
-            statusEl.textContent = err instanceof Error ? err.message : 'Ошибка рендера';
+            statusEl.textContent = err instanceof Error ? err.message : tr.exportError;
           } finally {
             abortCtrl = null;
-            renderBtn.textContent = 'Render Video';
+            renderBtn.textContent = tr.exportRenderVideo;
           }
         });
 
