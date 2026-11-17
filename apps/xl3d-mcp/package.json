@@ -1,6 +1,6 @@
 {
   "name": "xl3d-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "XL3D MCP & OpenAPI Server for Cloudflare Workers (Claude, ChatGPT, Grok, Desktop Agents)",
   "type": "module",

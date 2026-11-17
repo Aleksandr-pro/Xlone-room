@@ -8,12 +8,14 @@ import type {
   ScriptLanguage,
   Vec3,
   Vertex,
+  XL3DScene,
 } from '../core/types';
 import * as editOps from '../engine/editOps';
 import { exportSceneToOBJ, exportSceneToPLY, exportSceneToSTL } from '../engine/ioFormats';
 import { createDefaultModifier } from '../engine/modifiers';
 import {
   buildEdgesFromFaces,
+  createDefaultXL3DScene,
   createSceneObject,
   defaultPhysics,
   recomputeNormals,
@@ -24,13 +26,70 @@ import { store } from './xl3dStore';
 
 export type BridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+export interface CloudUser {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  provider: 'email' | 'google';
+  activeWorkspaceId: string | null;
+  mcpTokenPreview: string;
+  createdAt: number;
+}
+
+export interface CloudWorkspace {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  objectCount: number;
+  revision: number;
+  lastAgentTool: string | null;
+  lastAgentSummary: string | null;
+  lastAgentAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CloudAgentLog {
+  id: string;
+  workspaceId?: string;
+  source: string;
+  toolName?: string;
+  tool?: string;
+  summary: string;
+  status: 'ok' | 'error';
+  revision: number;
+  createdAt: number;
+}
+
 export interface McpBridgeConfig {
   serverUrl: string;
   roomId: string;
   token: string;
+  sessionToken: string;
+  mcpToken: string;
+  activeWorkspaceId: string;
+  autoConnect: boolean;
+  user: CloudUser | null;
+  workspaces: CloudWorkspace[];
+  syncedRevisions: Record<string, number>;
 }
 
-const STORAGE_KEY = 'xl3d_mcp_bridge_v1';
+const STORAGE_KEY = 'xl3d_mcp_bridge_v2';
+const LEGACY_STORAGE_KEY = 'xl3d_mcp_bridge_v1';
+
+interface AndroidBridgeAuthApi {
+  openExternalUrl?: (url: string) => void;
+  savePersistentAuth?: (json: string) => void;
+  loadPersistentAuth?: () => string;
+  clearPersistentAuth?: () => void;
+}
+
+function getAndroidBridge(): AndroidBridgeAuthApi | null {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { AndroidBridge?: AndroidBridgeAuthApi }).AndroidBridge ?? null;
+}
 
 function randomCode(len: number): string {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -62,50 +121,106 @@ class XL3DMcpBridge {
   config: McpBridgeConfig;
   status: BridgeStatus = 'disconnected';
   lastError = '';
-  logs: string[] = ['AI / MCP Bridge готов к подключению к Cloudflare Worker'];
+  authBusy = false;
+  authError = '';
+  googleAuthEnabled = false;
+  agentLogs: CloudAgentLog[] = [];
+  cloudRevision = 1;
+  hasUnreadAgentUpdates = false;
+  logs: string[] = ['XL3D Cloud & AI Bridge готов'];
 
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private manualDisconnect = false;
   private listeners = new Set<() => void>();
+  private bootstrapped = false;
 
   constructor() {
     this.config = this.loadConfig();
+    this.registerGlobalCallback();
+  }
+
+  private registerGlobalCallback(): void {
+    if (typeof window === 'undefined') return;
+    (window as unknown as { __xl3dHandleAuthCallback?: (url: string) => void }).__xl3dHandleAuthCallback = (
+      callbackUrl: string
+    ) => {
+      void this.handleAuthCallbackUrl(callbackUrl);
+    };
   }
 
   private loadConfig(): McpBridgeConfig {
-    if (typeof localStorage !== 'undefined') {
+    let raw = '';
+    const bridge = getAndroidBridge();
+    try {
+      if (bridge?.loadPersistentAuth) {
+        raw = bridge.loadPersistentAuth() || '';
+      }
+    } catch {
+      // ignore
+    }
+    if (!raw && typeof localStorage !== 'undefined') {
+      raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) || '';
+    }
+    if (raw) {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<McpBridgeConfig>;
-          if (parsed.roomId && parsed.token) {
-            return {
-              serverUrl: String(parsed.serverUrl ?? ''),
-              roomId: String(parsed.roomId),
-              token: String(parsed.token),
-            };
-          }
-        }
+        const parsed = JSON.parse(raw) as Partial<McpBridgeConfig>;
+        return {
+          serverUrl: String(parsed.serverUrl ?? ''),
+          roomId: String(parsed.roomId ?? parsed.activeWorkspaceId ?? `xl3d-${randomCode(4)}`),
+          token: String(parsed.token ?? parsed.mcpToken ?? randomCode(14)),
+          sessionToken: String(parsed.sessionToken ?? ''),
+          mcpToken: String(parsed.mcpToken ?? ''),
+          activeWorkspaceId: String(parsed.activeWorkspaceId ?? parsed.roomId ?? ''),
+          autoConnect: parsed.autoConnect !== false,
+          user: parsed.user ?? null,
+          workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : [],
+          syncedRevisions: parsed.syncedRevisions ?? {},
+        };
       } catch {
-        // ignore
+        // fallback below
       }
     }
     const cfg: McpBridgeConfig = {
       serverUrl: '',
       roomId: `xl3d-${randomCode(4)}`,
       token: randomCode(14),
+      sessionToken: '',
+      mcpToken: '',
+      activeWorkspaceId: '',
+      autoConnect: true,
+      user: null,
+      workspaces: [],
+      syncedRevisions: {},
     };
     this.saveConfig(cfg);
     return cfg;
   }
 
   private saveConfig(cfg: McpBridgeConfig): void {
-    if (typeof localStorage === 'undefined') return;
+    const json = JSON.stringify(cfg);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY, json);
+      } catch {
+        // ignore
+      }
+    }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+      getAndroidBridge()?.savePersistentAuth?.(json);
     } catch {
       // ignore
     }
+  }
+
+  isAuthenticated(): boolean {
+    return Boolean(this.config.sessionToken && this.config.user);
+  }
+
+  getActiveWorkspace(): CloudWorkspace | null {
+    const id = this.config.activeWorkspaceId || this.config.roomId;
+    return this.config.workspaces.find((w) => w.id === id) ?? this.config.workspaces[0] ?? null;
   }
 
   subscribe(fn: () => void): () => void {
@@ -118,34 +233,52 @@ class XL3DMcpBridge {
     store.commitLiveChange();
   }
 
+  private notifyListenersOnly(): void {
+    this.listeners.forEach((l) => l());
+  }
+
   private log(line: string): void {
     this.logs.push(line);
-    if (this.logs.length > 25) this.logs = this.logs.slice(-25);
+    if (this.logs.length > 30) this.logs = this.logs.slice(-30);
   }
 
   updateConfig(patch: Partial<McpBridgeConfig>): void {
     this.config = { ...this.config, ...patch };
     this.saveConfig(this.config);
-    this.listeners.forEach((l) => l());
+    this.notifyListenersOnly();
   }
 
   regenerateToken(): void {
+    if (this.isAuthenticated()) {
+      void this.regenerateMcpToken();
+      return;
+    }
     this.updateConfig({ roomId: `xl3d-${randomCode(4)}`, token: randomCode(14) });
+  }
+
+  getEffectiveRoomId(): string {
+    return this.config.activeWorkspaceId || this.config.roomId || 'default';
+  }
+
+  getEffectiveMcpToken(): string {
+    return this.config.mcpToken || this.config.token;
   }
 
   getMcpHttpUrl(): string {
     const base = this.normalizeHttpBase(this.config.serverUrl);
     if (!base) return '';
-    return `${base}/mcp?room=${encodeURIComponent(this.config.roomId)}&token=${encodeURIComponent(this.config.token)}`;
+    const room = this.getEffectiveRoomId();
+    const tok = this.getEffectiveMcpToken();
+    return `${base}/mcp?room=${encodeURIComponent(room)}&token=${encodeURIComponent(tok)}`;
   }
 
   getOpenApiUrl(): string {
     const base = this.normalizeHttpBase(this.config.serverUrl);
     if (!base) return '';
-    return `${base}/openapi.json?room=${encodeURIComponent(this.config.roomId)}`;
+    return `${base}/openapi.json?room=${encodeURIComponent(this.getEffectiveRoomId())}`;
   }
 
-  private normalizeHttpBase(raw: string): string {
+  normalizeHttpBase(raw: string): string {
     const s = raw.trim().replace(/\/+$/, '');
     if (!s) return '';
     if (s.startsWith('ws://')) return 'http://' + s.slice(5);
@@ -157,7 +290,361 @@ class XL3DMcpBridge {
   private normalizeWsUrl(): string {
     const httpBase = this.normalizeHttpBase(this.config.serverUrl);
     const wsBase = httpBase.replace(/^http/, 'ws');
-    return `${wsBase}/ws?room=${encodeURIComponent(this.config.roomId)}&token=${encodeURIComponent(this.config.token)}`;
+    const wsToken = this.config.sessionToken || this.config.mcpToken || this.config.token;
+    const room = this.getEffectiveRoomId();
+    return `${wsBase}/ws?room=${encodeURIComponent(room)}&token=${encodeURIComponent(wsToken)}`;
+  }
+
+  private async apiFetch<T>(
+    path: string,
+    opts: { method?: string; body?: unknown; auth?: boolean } = {}
+  ): Promise<T> {
+    const base = this.normalizeHttpBase(this.config.serverUrl);
+    if (!base) {
+      throw new Error('Укажите URL Cloudflare Worker (https://...workers.dev)');
+    }
+    const headers: Record<string, string> = {};
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+    if (opts.auth !== false && this.config.sessionToken) {
+      headers['Authorization'] = `Bearer ${this.config.sessionToken}`;
+    }
+    const resp = await fetch(`${base}${path}`, {
+      method: opts.method ?? 'GET',
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    const text = await resp.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      data = { error: text };
+    }
+    if (!resp.ok) {
+      if (resp.status === 401 && opts.auth !== false) {
+        this.handleExpiredSession();
+      }
+      throw new Error(String(data.error || `HTTP ${resp.status}`));
+    }
+    return data as T;
+  }
+
+  private handleExpiredSession(): void {
+    this.config.sessionToken = '';
+    this.config.user = null;
+    this.saveConfig(this.config);
+    this.disconnect(false);
+    this.notifyListenersOnly();
+  }
+
+  async bootstrap(): Promise<void> {
+    if (this.bootstrapped) return;
+    this.bootstrapped = true;
+
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      const tokenFromQuery = url.searchParams.get('xl3d_token');
+      if (tokenFromQuery) {
+        url.searchParams.delete('xl3d_token');
+        try {
+          window.history.replaceState({}, '', url.toString());
+        } catch {
+          // ignore
+        }
+        await this.completeTokenLogin(tokenFromQuery);
+        return;
+      }
+    }
+
+    if (this.config.serverUrl && this.config.sessionToken) {
+      try {
+        await this.refreshAccountAndWorkspaces();
+        await this.pullLatestWorkspaceState(true);
+        if (this.config.autoConnect) {
+          this.connect();
+        }
+      } catch (err) {
+        this.log(`⚠ Восстановление сессии: ${err instanceof Error ? err.message : String(err)}`);
+        this.notifyListenersOnly();
+      }
+    }
+  }
+
+  async handleAuthCallbackUrl(callbackUrl: string): Promise<void> {
+    try {
+      const parsed = new URL(callbackUrl);
+      const tok = parsed.searchParams.get('xl3d_token') || parsed.searchParams.get('token');
+      if (tok) {
+        await this.completeTokenLogin(tok);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private async completeTokenLogin(sessionToken: string): Promise<void> {
+    this.authBusy = true;
+    this.authError = '';
+    this.notifyListenersOnly();
+    try {
+      this.updateConfig({ sessionToken });
+      await this.refreshAccountAndWorkspaces();
+      await this.pullLatestWorkspaceState(true);
+      if (this.config.autoConnect) this.connect();
+      this.log(`✓ Авторизован как ${this.config.user?.email ?? 'User'}`);
+    } catch (err) {
+      this.authError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.authBusy = false;
+      this.notifyListenersOnly();
+    }
+  }
+
+  async register(email: string, password: string, name: string): Promise<boolean> {
+    this.authBusy = true;
+    this.authError = '';
+    this.notifyListenersOnly();
+    try {
+      const res = await this.apiFetch<{
+        user: CloudUser;
+        sessionToken: string;
+        mcpToken: string;
+        workspaces: CloudWorkspace[];
+        activeWorkspaceId: string;
+      }>('/auth/register', {
+        method: 'POST',
+        auth: false,
+        body: { email, password, name, deviceLabel: getAndroidBridge() ? 'XL3D Android' : 'XL3D Web' },
+      });
+      this.applyAuthBundle(res);
+      await this.saveCurrentSceneToCloud('Начальная сцена после регистрации');
+      if (this.config.autoConnect) this.connect();
+      return true;
+    } catch (err) {
+      this.authError = err instanceof Error ? err.message : String(err);
+      return false;
+    } finally {
+      this.authBusy = false;
+      this.notifyListenersOnly();
+    }
+  }
+
+  async login(email: string, password: string): Promise<boolean> {
+    this.authBusy = true;
+    this.authError = '';
+    this.notifyListenersOnly();
+    try {
+      const res = await this.apiFetch<{
+        user: CloudUser;
+        sessionToken: string;
+        mcpToken: string;
+        workspaces: CloudWorkspace[];
+        activeWorkspaceId: string;
+      }>('/auth/login', {
+        method: 'POST',
+        auth: false,
+        body: { email, password, deviceLabel: getAndroidBridge() ? 'XL3D Android' : 'XL3D Web' },
+      });
+      this.applyAuthBundle(res);
+      await this.pullLatestWorkspaceState(true);
+      if (this.config.autoConnect) this.connect();
+      return true;
+    } catch (err) {
+      this.authError = err instanceof Error ? err.message : String(err);
+      return false;
+    } finally {
+      this.authBusy = false;
+      this.notifyListenersOnly();
+    }
+  }
+
+  startGoogleAuth(): void {
+    const base = this.normalizeHttpBase(this.config.serverUrl);
+    if (!base) {
+      this.authError = 'Сначала укажите URL Cloudflare Worker';
+      this.notifyListenersOnly();
+      return;
+    }
+    const bridge = getAndroidBridge();
+    const redirectUri = bridge?.openExternalUrl
+      ? 'xl3d://auth/callback'
+      : typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : `${base}/`;
+    const targetUrl = `${base}/auth/google/start?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    if (bridge?.openExternalUrl) {
+      bridge.openExternalUrl(targetUrl);
+    } else if (typeof window !== 'undefined') {
+      window.location.href = targetUrl;
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      if (this.config.serverUrl && this.config.sessionToken) {
+        await this.apiFetch('/auth/logout', { method: 'POST', body: {} });
+      }
+    } catch {
+      // ignore
+    }
+    this.disconnect(false);
+    this.updateConfig({
+      sessionToken: '',
+      mcpToken: '',
+      user: null,
+      workspaces: [],
+      activeWorkspaceId: '',
+    });
+    try {
+      getAndroidBridge()?.clearPersistentAuth?.();
+      this.saveConfig(this.config);
+    } catch {
+      // ignore
+    }
+    this.agentLogs = [];
+    this.hasUnreadAgentUpdates = false;
+    this.notifyListenersOnly();
+  }
+
+  private applyAuthBundle(bundle: {
+    user: CloudUser;
+    sessionToken?: string;
+    mcpToken: string;
+    workspaces: CloudWorkspace[];
+    activeWorkspaceId: string;
+  }): void {
+    this.updateConfig({
+      ...(bundle.sessionToken ? { sessionToken: bundle.sessionToken } : {}),
+      mcpToken: bundle.mcpToken,
+      token: bundle.mcpToken,
+      user: bundle.user,
+      workspaces: bundle.workspaces,
+      activeWorkspaceId: bundle.activeWorkspaceId,
+      roomId: bundle.activeWorkspaceId,
+    });
+  }
+
+  async refreshAccountAndWorkspaces(): Promise<void> {
+    const data = await this.apiFetch<{
+      user: CloudUser;
+      mcpToken: string;
+      workspaces: CloudWorkspace[];
+      activeWorkspaceId: string;
+      googleAuthEnabled?: boolean;
+    }>('/auth/me');
+    this.googleAuthEnabled = Boolean(data.googleAuthEnabled);
+    this.applyAuthBundle(data);
+  }
+
+  async regenerateMcpToken(): Promise<void> {
+    if (!this.isAuthenticated()) return;
+    const res = await this.apiFetch<{ mcpToken: string; mcpTokenPreview: string }>(
+      '/auth/regenerate-mcp-token',
+      { method: 'POST', body: {} }
+    );
+    const user = this.config.user ? { ...this.config.user, mcpTokenPreview: res.mcpTokenPreview } : null;
+    this.updateConfig({ mcpToken: res.mcpToken, token: res.mcpToken, user });
+    this.log('🔑 Выпущен новый личный MCP Token');
+    this.notifyListenersOnly();
+  }
+
+  async createWorkspace(name: string, description = '', fromCurrentScene = false): Promise<CloudWorkspace | null> {
+    if (!this.isAuthenticated()) return null;
+    const scenePayload = fromCurrentScene ? store.scene : createDefaultXL3DScene();
+    const res = await this.apiFetch<{ workspace: CloudWorkspace }>('/workspaces', {
+      method: 'POST',
+      body: { name, description, scene: scenePayload, setActive: true },
+    });
+    await this.refreshAccountAndWorkspaces();
+    await this.switchWorkspace(res.workspace.id);
+    return res.workspace;
+  }
+
+  async switchWorkspace(workspaceId: string): Promise<void> {
+    if (!this.isAuthenticated()) return;
+    await this.apiFetch(`/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      body: { setActive: true },
+    });
+    this.updateConfig({ activeWorkspaceId: workspaceId, roomId: workspaceId });
+    await this.refreshAccountAndWorkspaces();
+    await this.pullLatestWorkspaceState(true, true);
+    if (this.config.autoConnect || this.status === 'connected') {
+      this.connect();
+    }
+  }
+
+  async renameWorkspace(workspaceId: string, name: string): Promise<void> {
+    if (!this.isAuthenticated() || !name.trim()) return;
+    await this.apiFetch(`/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      body: { name: name.trim() },
+    });
+    await this.refreshAccountAndWorkspaces();
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    if (!this.isAuthenticated()) return;
+    const res = await this.apiFetch<{ deleted: boolean; activeWorkspaceId: string }>(
+      `/workspaces/${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' }
+    );
+    this.updateConfig({ activeWorkspaceId: res.activeWorkspaceId, roomId: res.activeWorkspaceId });
+    await this.refreshAccountAndWorkspaces();
+    await this.pullLatestWorkspaceState(true, true);
+    if (this.status === 'connected') this.connect();
+  }
+
+  async saveCurrentSceneToCloud(summary?: string): Promise<void> {
+    const wsId = this.getEffectiveRoomId();
+    if (!this.isAuthenticated() || !wsId) return;
+    const res = await this.apiFetch<{ ok: boolean; revision: number }>(
+      `/workspaces/${encodeURIComponent(wsId)}/state`,
+      {
+        method: 'PUT',
+        body: { scene: store.scene, summary },
+      }
+    );
+    this.cloudRevision = res.revision;
+    this.updateConfig({
+      syncedRevisions: { ...this.config.syncedRevisions, [wsId]: res.revision },
+    });
+    this.log(`☁ Сохранено в облако (rev #${res.revision})`);
+    await this.refreshAccountAndWorkspaces();
+  }
+
+  async pullLatestWorkspaceState(applyIfNewer = true, forceApply = false): Promise<void> {
+    const wsId = this.getEffectiveRoomId();
+    if (!this.isAuthenticated() || !wsId) return;
+    const data = await this.apiFetch<{
+      revision: number;
+      scene: XL3DScene;
+      logs: CloudAgentLog[];
+      recentLogs?: CloudAgentLog[];
+    }>(`/workspaces/${encodeURIComponent(wsId)}/state`);
+
+    this.cloudRevision = data.revision ?? 1;
+    this.agentLogs = Array.isArray(data.logs) && data.logs.length > 0 ? data.logs : (data.recentLogs ?? []);
+    const lastSeen = this.config.syncedRevisions[wsId] ?? 0;
+
+    if (data.scene && Array.isArray(data.scene.objects)) {
+      if (forceApply || (applyIfNewer && data.revision > lastSeen)) {
+        store.loadCloudScene(data.scene);
+        this.updateConfig({
+          syncedRevisions: { ...this.config.syncedRevisions, [wsId]: data.revision },
+        });
+        if (!forceApply && lastSeen > 0 && data.revision > lastSeen) {
+          this.hasUnreadAgentUpdates = true;
+          this.log(`🤖 Загружены обновления из облака (rev #${data.revision})`);
+        }
+      }
+    }
+    this.notifyListenersOnly();
+  }
+
+  markAgentUpdatesRead(): void {
+    this.hasUnreadAgentUpdates = false;
+    this.notifyListenersOnly();
   }
 
   connect(): void {
@@ -170,12 +657,13 @@ class XL3DMcpBridge {
       return;
     }
 
+    this.manualDisconnect = false;
     this.disconnect(false);
     this.status = 'connecting';
     this.lastError = '';
     const wsUrl = this.normalizeWsUrl();
     this.log(`Подключение к ${this.normalizeHttpBase(this.config.serverUrl)}...`);
-    this.notify();
+    this.notifyListenersOnly();
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -184,23 +672,95 @@ class XL3DMcpBridge {
       ws.onopen = () => {
         this.status = 'connected';
         this.lastError = '';
-        this.log(`🟢 Подключено (комната: ${this.config.roomId})`);
-        this.syncSceneToServer();
+        this.log(`🟢 Онлайн (${this.getActiveWorkspace()?.name ?? this.getEffectiveRoomId()})`);
         this.pingTimer = setInterval(() => {
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'ping' }));
           }
         }, 25000);
-        this.notify();
+        this.notifyListenersOnly();
       };
 
       ws.onmessage = (ev) => {
         if (typeof ev.data !== 'string') return;
         try {
           const msg = JSON.parse(ev.data) as Record<string, unknown>;
+          if (msg.type === 'welcome') {
+            const wsId = String(msg.workspaceId || this.getEffectiveRoomId());
+            const serverRev = Number(msg.revision ?? 1);
+            this.cloudRevision = serverRev;
+            if (Array.isArray(msg.recentLogs)) {
+              this.agentLogs = msg.recentLogs as CloudAgentLog[];
+            }
+            const syncedRev = this.config.syncedRevisions[wsId] ?? 0;
+            if (msg.scene && typeof msg.scene === 'object' && serverRev > syncedRev) {
+              store.loadCloudScene(msg.scene as XL3DScene);
+              this.updateConfig({
+                syncedRevisions: { ...this.config.syncedRevisions, [wsId]: serverRev },
+              });
+              if (syncedRev > 0) {
+                this.hasUnreadAgentUpdates = true;
+                this.log(`🤖 Получена новая сцена агента (rev #${serverRev})`);
+              }
+            }
+            this.notifyListenersOnly();
+            return;
+          }
+
+          if (msg.type === 'agent_event') {
+            const rev = Number(msg.revision ?? this.cloudRevision + 1);
+            this.cloudRevision = rev;
+            const logItem = msg.log as CloudAgentLog | undefined;
+            if (logItem) {
+              this.agentLogs = [logItem, ...this.agentLogs].slice(0, 40);
+              this.log(`🤖 ${logItem.tool ?? logItem.toolName}: ${logItem.summary}`);
+            }
+            if (msg.scene && typeof msg.scene === 'object') {
+              store.loadCloudScene(msg.scene as XL3DScene);
+              const wsId = this.getEffectiveRoomId();
+              this.updateConfig({
+                syncedRevisions: { ...this.config.syncedRevisions, [wsId]: rev },
+              });
+            }
+            this.hasUnreadAgentUpdates = true;
+            this.notifyListenersOnly();
+            return;
+          }
+
+          if (msg.type === 'scene_updated') {
+            const rev = Number(msg.revision ?? this.cloudRevision);
+            this.cloudRevision = rev;
+            if (msg.scene && typeof msg.scene === 'object') {
+              store.loadCloudScene(msg.scene as XL3DScene);
+              const wsId = this.getEffectiveRoomId();
+              this.updateConfig({
+                syncedRevisions: { ...this.config.syncedRevisions, [wsId]: rev },
+              });
+            }
+            this.notifyListenersOnly();
+            return;
+          }
+
+          if (msg.type === 'sync_ack') {
+            const rev = Number(msg.revision ?? this.cloudRevision);
+            this.cloudRevision = rev;
+            const wsId = this.getEffectiveRoomId();
+            this.updateConfig({
+              syncedRevisions: { ...this.config.syncedRevisions, [wsId]: rev },
+            });
+            return;
+          }
+
           if (msg.type === 'rpc' && typeof msg.callId === 'string' && typeof msg.tool === 'string') {
             const result = this.handleRpc(msg.tool, (msg.args ?? {}) as Record<string, unknown>);
-            ws.send(JSON.stringify({ type: 'rpc_result', callId: msg.callId, result }));
+            ws.send(
+              JSON.stringify({
+                type: 'rpc_result',
+                callId: msg.callId,
+                result,
+                scene: store.scene,
+              })
+            );
           }
         } catch {
           // ignore
@@ -211,7 +771,7 @@ class XL3DMcpBridge {
         this.status = 'error';
         this.lastError = 'Ошибка WebSocket соединения';
         this.log(`✕ ${this.lastError}`);
-        this.notify();
+        this.notifyListenersOnly();
       };
 
       ws.onclose = () => {
@@ -222,17 +782,30 @@ class XL3DMcpBridge {
         if (this.status !== 'disconnected') {
           this.status = 'disconnected';
           this.log('Отключено от AI Bridge');
-          this.notify();
+          this.notifyListenersOnly();
+        }
+        if (!this.manualDisconnect && this.config.autoConnect && this.isAuthenticated()) {
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = setTimeout(() => {
+            if (!this.manualDisconnect && this.status === 'disconnected') {
+              this.connect();
+            }
+          }, 5000);
         }
       };
     } catch (err) {
       this.status = 'error';
       this.lastError = err instanceof Error ? err.message : String(err);
-      this.notify();
+      this.notifyListenersOnly();
     }
   }
 
   disconnect(notifyUi = true): void {
+    this.manualDisconnect = notifyUi;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
@@ -246,13 +819,22 @@ class XL3DMcpBridge {
       this.ws = null;
     }
     this.status = 'disconnected';
-    if (notifyUi) this.notify();
+    if (notifyUi) this.notifyListenersOnly();
   }
 
-  syncSceneToServer(): void {
+  syncSceneToServer(force = false): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      const wsId = this.getEffectiveRoomId();
+      const clientRev = this.config.syncedRevisions[wsId] ?? this.cloudRevision;
       try {
-        this.ws.send(JSON.stringify({ type: 'scene_sync', scene: store.scene }));
+        this.ws.send(
+          JSON.stringify({
+            type: 'scene_sync',
+            scene: store.scene,
+            clientRev,
+            force,
+          })
+        );
       } catch {
         // ignore
       }
@@ -279,6 +861,7 @@ class XL3DMcpBridge {
         app: 'XL3D',
         version: store.scene.version,
         clientConnected: true,
+        workspaceId: this.getEffectiveRoomId(),
         activeObjectId: store.scene.activeObjectId,
         activeObjectName: active?.name ?? null,
         currentFrame: store.scene.currentFrame,
@@ -324,7 +907,11 @@ class XL3DMcpBridge {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ ok: true, logs: res.logs, createdObjects: res.createdObjects, modifiedObjects: res.modifiedObjects, durationMs: res.durationMs }, null, 2),
+            text: JSON.stringify(
+              { ok: true, logs: res.logs, createdObjects: res.createdObjects, modifiedObjects: res.modifiedObjects, durationMs: res.durationMs },
+              null,
+              2
+            ),
           },
         ],
       };

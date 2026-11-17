@@ -3,15 +3,19 @@ import { handleMcpJsonRpc, XL3D_BPY_REFERENCE_MD, type JsonRpcRequest } from './
 import { createInitialHeadlessScene, executeHeadlessTool, type ToolResult } from './sceneToolExecutor';
 
 const remoteUrl = (process.env.XL3D_MCP_URL || '').trim().replace(/\/$/, '');
-const room = (process.env.XL3D_ROOM || 'default').trim();
-const token = (process.env.XL3D_TOKEN || '').trim();
+const room = (process.env.XL3D_WORKSPACE || process.env.XL3D_ROOM || '').trim();
+const token = (process.env.XL3D_API_TOKEN || process.env.XL3D_TOKEN || '').trim();
 
 const localScene = createInitialHeadlessScene();
 const localUndo: string[] = [];
 
 async function callRemoteMcp(req: JsonRpcRequest): Promise<unknown> {
   const sep = remoteUrl.includes('?') ? '&' : '?';
-  const target = `${remoteUrl}/mcp${sep}room=${encodeURIComponent(room)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+  const params = new URLSearchParams();
+  if (room) params.set('room', room);
+  if (token) params.set('token', token);
+  const qs = params.toString();
+  const target = `${remoteUrl}/mcp${qs ? sep + qs : ''}`;
   const resp = await fetch(target, {
     method: 'POST',
     headers: {
@@ -21,6 +25,17 @@ async function callRemoteMcp(req: JsonRpcRequest): Promise<unknown> {
     body: JSON.stringify(req),
   });
   if (resp.status === 202) return null;
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => resp.statusText);
+    return {
+      jsonrpc: '2.0',
+      id: req.id ?? null,
+      error: {
+        code: resp.status === 401 || resp.status === 403 ? -32001 : -32603,
+        message: `HTTP ${resp.status}: ${errText}`,
+      },
+    };
+  }
   return resp.json();
 }
 

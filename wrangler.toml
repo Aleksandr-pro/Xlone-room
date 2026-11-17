@@ -5,11 +5,20 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 MCP_TOKEN = ""
+GOOGLE_CLIENT_ID = ""
 
 [[durable_objects.bindings]]
 name = "ROOM_HUB"
 class_name = "RoomHub"
 
+[[durable_objects.bindings]]
+name = "ACCOUNT_HUB"
+class_name = "AccountHub"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomHub"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountHub"]

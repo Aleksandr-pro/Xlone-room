@@ -1,22 +1,29 @@
 import { XL3D_MCP_TOOLS } from './mcpProtocol';
 
-export function buildOpenApiSpec(baseUrl: string, roomId: string): Record<string, unknown> {
+export function buildOpenApiSpec(baseUrl: string, roomId = ''): Record<string, unknown> {
   const paths: Record<string, unknown> = {};
 
   for (const tool of XL3D_MCP_TOOLS) {
-    if (tool.name === 'get_scene_info') {
-      paths['/api/get_scene_info'] = {
+    const roomParam = {
+      name: 'room',
+      in: 'query',
+      required: false,
+      description: 'Optional workspace ID (ws_...). Defaults to your active workspace.',
+      schema: roomId ? { type: 'string', default: roomId } : { type: 'string' },
+    };
+
+    if (tool.name === 'get_scene_info' || tool.name === 'list_workspaces') {
+      paths[`/api/${tool.name}`] = {
         get: {
-          operationId: 'get_scene_info',
+          operationId: tool.name,
           summary: tool.description,
-          parameters: [
-            { name: 'room', in: 'query', required: false, schema: { type: 'string', default: roomId } },
-          ],
+          parameters: [roomParam],
           responses: {
             '200': {
-              description: 'Scene summary JSON',
+              description: 'Result JSON',
               content: { 'application/json': { schema: { type: 'object' } } },
             },
+            '401': { description: 'Unauthorized — invalid or missing Bearer token' },
           },
         },
       };
@@ -25,9 +32,7 @@ export function buildOpenApiSpec(baseUrl: string, roomId: string): Record<string
         post: {
           operationId: tool.name,
           summary: tool.description,
-          parameters: [
-            { name: 'room', in: 'query', required: false, schema: { type: 'string', default: roomId } },
-          ],
+          parameters: [roomParam],
           requestBody: {
             required: false,
             content: {
@@ -41,6 +46,7 @@ export function buildOpenApiSpec(baseUrl: string, roomId: string): Record<string
               description: 'Tool execution result',
               content: { 'application/json': { schema: { type: 'object' } } },
             },
+            '401': { description: 'Unauthorized — invalid or missing Bearer token' },
           },
         },
       };
@@ -50,10 +56,10 @@ export function buildOpenApiSpec(baseUrl: string, roomId: string): Record<string
   return {
     openapi: '3.1.0',
     info: {
-      title: 'XL3D AI Modeling API (Blender 5.x Mobile)',
-      version: '1.0.0',
+      title: 'XL3D AI Modeling API (Authenticated Cloud Workspaces)',
+      version: '2.0.0',
       description:
-        'Control XL3D 3D scene via ChatGPT Actions, Grok, or HTTP agents. Supports bpy/bmesh scripts, procedural mesh creation, Edit Mode ops, modifiers, materials, and exports.',
+        'Authenticated API to manage XL3D 3D workspaces and run bpy/bmesh modeling tools from ChatGPT Actions, Grok, Claude, or HTTP agents.',
     },
     servers: [{ url: baseUrl.replace(/\/$/, '') }],
     components: {

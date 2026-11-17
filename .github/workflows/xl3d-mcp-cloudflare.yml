@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, 'arena/**']
     paths:
+      - 'wrangler.toml'
       - 'apps/xl3d-mcp/**'
       - 'apps/xl3d/src/core/**'
       - 'apps/xl3d/src/engine/**'
@@ -36,9 +37,21 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
         run: |
           if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
             npx wrangler deploy
+            if [ -n "$GOOGLE_CLIENT_ID" ]; then
+              printf '%s' "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID
+            fi
+            if [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+              printf '%s' "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+            fi
+            if [ -n "$AUTH_SECRET" ]; then
+              printf '%s' "$AUTH_SECRET" | npx wrangler secret put AUTH_SECRET
+            fi
           else
             echo "Cloudflare secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID) are not configured yet."
             echo "Worker bundle verified via wrangler --dry-run. Add secrets in GitHub Settings -> Secrets -> Actions to enable auto-deploy."
