@@ -80,10 +80,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="xl3d-v1.3.${{ github.run_number }}"
+          TAG="xl3d-v1.4.${{ github.run_number }}"
           SIZE_H=$(du -sh XL3D.apk | cut -f1)
           gh release create "$TAG" XL3D.apk \
             --target "${{ github.sha }}" \
-            --title "XL3D v1.3.${{ github.run_number }} (Blender 5.x Mobile + Scripting + AI MCP Bridge)" \
-            --notes "Нативный Android APK XL3D (${SIZE_H}) — v1.3.0: встроенный AI / MCP Bridge для подключения к бесплатному Cloudflare Worker (Claude, ChatGPT Custom GPT Actions, Grok, Claude Code/Desktop), кнопка AI в шапке с комнатами и токенами, разрешение INTERNET для wss://, а также Blender Scripting (bpy/bmesh) и все 3D инструменты." \
+            --title "XL3D v1.4.${{ github.run_number }} (Blender 5.x Pro Modeling + Gizmos + Modifiers + AI MCP)" \
+            --notes "Нативный Android APK XL3D (${SIZE_H}) — v1.4.0: настоящие 3D-осевые гизмо X/Y/Z с привязкой Snap, вид из активной камеры (Cam) и Wireframe-кнопка, Catmull-Clark Subsurf / реальный Wireframe / Screw / Weld / Decimate / Boolean модификаторы + запекание Apply Modifier, Edit Mode (Bridge/Fill, Dissolve, Duplicate, Separate, Grow/Shrink Selection), Object Mode (Apply Transforms, Origin to Geometry, Join, Convert Curve/3D Text to Mesh), многосветовой PBR-рендер с бликами и AI/MCP Bridge." \
             --latest

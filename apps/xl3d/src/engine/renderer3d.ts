@@ -19,6 +19,7 @@ import type {
   MeshData,
   PaintSettings,
   SceneObject,
+  ToolGizmo,
   Vec3,
   XL3DScene,
 } from '../core/types';
@@ -77,7 +78,8 @@ export function renderViewport3D(
   paintState: PaintSettings,
   showOverlays = true,
   isOffscreenRender = false,
-  brushOverlay?: { screenX: number; screenY: number; radiusPx: number } | null
+  brushOverlay?: { screenX: number; screenY: number; radiusPx: number } | null,
+  gizmoState?: { tool?: ToolGizmo; activeAxis?: 'x' | 'y' | 'z' | null }
 ): RenderStats {
   const timeSec = (scene.currentFrame - 1) / Math.max(1, scene.fps);
   const basis = getCameraBasis(camera);
@@ -107,8 +109,8 @@ export function renderViewport3D(
     const isActive = obj.id === scene.activeObjectId;
     const matData = scene.materials.find((m) => m.id === obj.materialId) ?? scene.materials[0];
 
-    if ((obj.type === 'mesh' || obj.type === 'surface' || obj.type === 'metaball' || obj.type === 'text') && obj.mesh) {
-      const mesh = evaluateModifierStack(obj, timeSec) ?? obj.mesh;
+    if ((obj.type === 'mesh' || obj.type === 'surface' || obj.type === 'metaball' || obj.type === 'text' || obj.type === 'curve') && obj.mesh) {
+      const mesh = evaluateModifierStack(obj, timeSec, scene.objects) ?? obj.mesh;
       if (obj.modifiers.some((m) => m.type === 'geometryNodes' && m.enabled) && geoGraph) {
         evaluateGeometryNodesOnMesh(mesh, geoGraph, timeSec, scene.objects);
       }
@@ -154,6 +156,7 @@ export function renderViewport3D(
           fn,
           w0,
           sunDir,
+          lights,
           basis.forward,
           engine,
           wbMode,
@@ -354,7 +357,21 @@ export function renderViewport3D(
       const activeObj = scene.objects.find((o) => o.id === scene.activeObjectId);
       if (activeObj && activeObj.visible) {
         const animTr = evaluateAnimatedTransform(activeObj, scene.currentFrame, scene.fps);
-        drawTransformGizmo(ctx, animTr.location, basis, camera, width, height);
+        let gizmoOrigin = animTr.location;
+        if (mode === 'edit' && activeObj.mesh) {
+          const selVerts = activeObj.mesh.vertices.filter((v) => v.selected && !v.hidden);
+          if (selVerts.length > 0) {
+            const avgLocal = selVerts.reduce(
+              (acc, v) => ({ x: acc.x + v.pos.x, y: acc.y + v.pos.y, z: acc.z + v.pos.z }),
+              { x: 0, y: 0, z: 0 }
+            );
+            avgLocal.x /= selVerts.length;
+            avgLocal.y /= selVerts.length;
+            avgLocal.z /= selVerts.length;
+            gizmoOrigin = transformVec3(avgLocal, animTr.location, animTr.rotation, animTr.scale);
+          }
+        }
+        drawTransformGizmo(ctx, gizmoOrigin, basis, camera, width, height, gizmoState);
       }
     }
     if (brushOverlay) {
@@ -518,12 +535,20 @@ function drawObjectGroundShadow(
   }
 }
 
+function parseHexRgb(hex: string): [number, number, number] {
+  const clean = (hex || '#ffffff').replace('#', '');
+  const n = parseInt(clean, 16);
+  if (Number.isNaN(n)) return [1, 1, 1];
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
 function computeFaceShadingColor(
   mesh: MeshData,
   face: MeshData['faces'][number],
   worldNormal: Vec3,
   worldPos: Vec3,
   sunDir: Vec3,
+  lights: SceneObject[],
   camForward: Vec3,
   engine: XL3DScene['render']['engine'],
   wbMode: XL3DScene['render']['workbenchShading'],
@@ -561,13 +586,47 @@ function computeFaceShadingColor(
     b = isActive ? 0.72 : 0.75;
   }
 
-  const ndotl = Math.max(0.18, Math.abs(dot3(worldNormal, sunDir)) * 0.82 + 0.18);
+  let lr = 0.2, lg = 0.21, lb = 0.24;
+  let specSum = 0;
+  const viewDir = { x: -camForward.x, y: -camForward.y, z: -camForward.z };
+  const rough = mat?.roughness ?? 0.35;
+  const specPow = Math.max(4, Math.pow(1 - clamp(rough, 0.02, 0.98), 2) * 48);
+  const specIntensity = engine === 'workbench' ? 0.08 : (0.18 + (mat?.metallic ?? 0.15) * 0.45) * (1 - rough * 0.7);
+
+  if (lights.length > 0 && engine !== 'workbench') {
+    for (const lObj of lights) {
+      const ld = lObj.light!;
+      const [cr, cg, cb] = parseHexRgb(ld.color);
+      let lDir = sunDir;
+      let atten = clamp((ld.power || 1000) / 900, 0.35, 2.2);
+      if (ld.kind === 'point' || ld.kind === 'spot' || ld.kind === 'area') {
+        const toL = sub3(lObj.location, worldPos);
+        const dist = Math.max(0.5, Math.hypot(toL.x, toL.y, toL.z));
+        lDir = { x: toL.x / dist, y: toL.y / dist, z: toL.z / dist };
+        atten *= 1 / (1 + 0.04 * dist * dist);
+      } else {
+        lDir = norm3({ x: lObj.location.x || 0.4, y: lObj.location.y || 0.3, z: Math.max(0.5, lObj.location.z || 1.2) });
+      }
+      const diff = Math.max(0, dot3(worldNormal, lDir)) * atten;
+      lr += cr * diff;
+      lg += cg * diff;
+      lb += cb * diff;
+
+      const halfVec = norm3(add3(lDir, viewDir));
+      const spec = Math.pow(Math.max(0, dot3(worldNormal, halfVec)), specPow) * specIntensity * atten;
+      specSum += spec;
+    }
+  } else {
+    const ndotl = Math.max(0.18, Math.abs(dot3(worldNormal, sunDir)) * 0.82 + 0.18);
+    lr = ndotl; lg = ndotl; lb = ndotl;
+  }
+
   const rim = Math.pow(1 - Math.abs(dot3(worldNormal, camForward)), 2) * (mat?.sheen || 0.12);
   const ao = engine === 'cycles' ? 0.92 + 0.08 * worldNormal.z : 1.0;
 
-  let fr = applyColorMgmt(r * ndotl * ao + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
-  let fg = applyColorMgmt(g * ndotl * ao + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
-  let fb = applyColorMgmt(b * ndotl * ao + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
+  let fr = applyColorMgmt(r * lr * ao + specSum + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
+  let fg = applyColorMgmt(g * lg * ao + specSum + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
+  let fb = applyColorMgmt(b * lb * ao + specSum + rim * 0.3, scene.render.colorTransform, scene.render.exposure);
 
   if (mode === 'edit' && isActive && face.selected) {
     fr = fr * 0.65 + 0.35;
@@ -636,37 +695,81 @@ function drawHelperObject(
   ctx.restore();
 }
 
+export function pickGizmoAxisAtScreen(
+  sx: number,
+  sy: number,
+  w: number,
+  h: number,
+  origin: Vec3,
+  camera: OrbitCamera
+): 'x' | 'y' | 'z' | null {
+  const basis = getCameraBasis(camera);
+  const axes: Array<{ axis: 'x' | 'y' | 'z'; dir: Vec3 }> = [
+    { axis: 'x', dir: { x: 1.25, y: 0, z: 0 } },
+    { axis: 'y', dir: { x: 0, y: 1.25, z: 0 } },
+    { axis: 'z', dir: { x: 0, y: 0, z: 1.25 } },
+  ];
+  let best: 'x' | 'y' | 'z' | null = null;
+  let bestD = 22;
+  for (const ax of axes) {
+    const p1 = projectPoint(add3(origin, ax.dir), basis, camera, w, h);
+    if (!p1.visible) continue;
+    const d = Math.hypot(sx - p1.sx, sy - p1.sy);
+    if (d < bestD) {
+      bestD = d;
+      best = ax.axis;
+    }
+  }
+  return best;
+}
+
 function drawTransformGizmo(
   ctx: CanvasRenderingContext2D,
   origin: Vec3,
   basis: CameraBasis,
   camera: OrbitCamera,
   w: number,
-  h: number
+  h: number,
+  gizmoState?: { tool?: ToolGizmo; activeAxis?: 'x' | 'y' | 'z' | null }
 ): void {
   const p0 = projectPoint(origin, basis, camera, w, h);
   if (!p0.visible) return;
-  const axes: Array<{ dir: Vec3; color: string; label: string }> = [
-    { dir: { x: 1.15, y: 0, z: 0 }, color: '#ff4b55', label: 'X' },
-    { dir: { x: 0, y: 1.15, z: 0 }, color: '#4ad66d', label: 'Y' },
-    { dir: { x: 0, y: 0, z: 1.15 }, color: '#4a9eff', label: 'Z' },
+  const tool = gizmoState?.tool ?? 'move';
+  const activeAxis = gizmoState?.activeAxis ?? null;
+  const axes: Array<{ axis: 'x' | 'y' | 'z'; dir: Vec3; color: string; label: string }> = [
+    { axis: 'x', dir: { x: 1.25, y: 0, z: 0 }, color: '#ff4b55', label: 'X' },
+    { axis: 'y', dir: { x: 0, y: 1.25, z: 0 }, color: '#4ad66d', label: 'Y' },
+    { axis: 'z', dir: { x: 0, y: 0, z: 1.25 }, color: '#4a9eff', label: 'Z' },
   ];
   ctx.save();
-  ctx.lineWidth = 3;
   ctx.font = '700 11px Inter, sans-serif';
   for (const ax of axes) {
     const p1 = projectPoint(add3(origin, ax.dir), basis, camera, w, h);
     if (!p1.visible) continue;
-    ctx.strokeStyle = ax.color;
+    const isHit = activeAxis === ax.axis;
+    ctx.lineWidth = isHit ? 4.5 : 3;
+    ctx.strokeStyle = isHit ? '#fde047' : ax.color;
     ctx.beginPath();
     ctx.moveTo(p0.sx, p0.sy);
     ctx.lineTo(p1.sx, p1.sy);
     ctx.stroke();
-    ctx.fillStyle = ax.color;
-    ctx.beginPath();
-    ctx.arc(p1.sx, p1.sy, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
+
+    ctx.fillStyle = isHit ? '#fde047' : ax.color;
+    if (tool === 'scale') {
+      ctx.fillRect(p1.sx - 6, p1.sy - 6, 12, 12);
+    } else if (tool === 'rotate') {
+      ctx.beginPath();
+      ctx.arc(p1.sx, p1.sy, 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p1.sx, p1.sy, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(p1.sx, p1.sy, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = isHit ? '#111' : '#fff';
     ctx.fillText(ax.label, p1.sx - 3.5, p1.sy + 4);
   }
   ctx.restore();
@@ -690,13 +793,13 @@ export function pickSceneAtScreen(
   let result: ScreenPickResult | null = null;
 
   for (const obj of scene.objects) {
-    if (!obj.visible) continue;
+    if (!obj.visible || obj.locked) continue;
     if (preferredObjectId && obj.id !== preferredObjectId) continue;
 
     const animTr = evaluateAnimatedTransform(obj, scene.currentFrame, scene.fps);
 
     if (obj.mesh && obj.mesh.faces.length > 0) {
-      const mesh = evaluateModifierStack(obj, timeSec) ?? obj.mesh;
+      const mesh = evaluateModifierStack(obj, timeSec, scene.objects) ?? obj.mesh;
       const worldPts = mesh.vertices.map((v) => transformVec3(v.pos, animTr.location, animTr.rotation, animTr.scale));
 
       for (let fi = 0; fi < mesh.faces.length; fi++) {

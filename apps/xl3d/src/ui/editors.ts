@@ -86,6 +86,7 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
     ['extrude', 'Extrude'], ['inset', 'Inset'], ['bevel', 'Bevel'],
     ['loopcut', 'Loop Cut'], ['knife', 'Knife / Bisect'], ['bridge', 'Bridge / Fill'],
     ['merge', 'Merge Center'], ['dissolve', 'Dissolve'], ['poke_faces', 'Poke Faces'],
+    ['duplicate_faces', 'Duplicate (Shift+D)'], ['separate_selection', 'Separate (P)'],
     ['spin', 'Spin 90°'], ['polybuild', 'Poly Build'], ['subdivide', 'Subdivide'],
     ['triangulate', 'Triangulate'], ['tris_to_quads', 'Tris→Quads'], ['shrink_fatten', 'Shrink/Fatten'],
     ['smooth_verts', 'Smooth'], ['flip_normals', 'Flip Normals'], ['toggle_sharp', 'Sharp Edge'],
@@ -193,6 +194,9 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
             <button class="xl-chip ${store.proportionalEditing ? 'active' : ''}" id="xl-prop-toggle">Proportional</button>
             <button class="xl-chip" data-edit-op="select_all">All</button>
             <button class="xl-chip" data-edit-op="select_invert">Invert</button>
+            <button class="xl-chip" data-edit-op="select_grow">Grow +</button>
+            <button class="xl-chip" data-edit-op="select_shrink">Shrink -</button>
+            <button class="xl-chip" data-edit-op="select_linked">Linked</button>
             <button class="xl-chip" data-edit-op="select_loop">Loop</button>
             <button class="xl-chip" data-edit-op="select_similar">Similar</button>
             <button class="xl-chip" data-edit-op="select_checker">Checker</button>
@@ -208,6 +212,7 @@ function renderToolsTab(obj: ReturnType<typeof store.getActiveObject>): string {
 
 function renderOutlinerTab(): string {
   const d = store.t();
+  const active = store.getActiveObject();
   return `
     <div class="xl-panel-stack">
       <div class="xl-section-card">
@@ -216,12 +221,19 @@ function renderOutlinerTab(): string {
           ${store.scene.objects.map((o) => `
             <div class="xl-outliner-item ${o.id === store.scene.activeObjectId ? 'active' : ''}" data-select-obj="${o.id}">
               <span><span class="xl-badge-mini">${o.type}</span> <strong>${o.name}</strong></span>
-              <button class="xl-chip xl-chip-sm" data-toggle-vis="${o.id}">${o.visible ? '👁' : '🙈'}</button>
+              <span style="display:flex;gap:4px;">
+                <button class="xl-chip xl-chip-sm" data-toggle-lock="${o.id}" title="Lock Selection">${o.locked ? '🔒' : '🔓'}</button>
+                <button class="xl-chip xl-chip-sm" data-toggle-vis="${o.id}">${o.visible ? '👁' : '🙈'}</button>
+              </span>
             </div>
           `).join('')}
         </div>
         <div class="xl-chip-row" style="margin-top:10px;">
           <button class="xl-btn" id="xl-dup-obj">${d.duplicateObj}</button>
+          <button class="xl-btn" id="xl-join-obj">⊕ Join (Ctrl+J)</button>
+          <button class="xl-btn" id="xl-apply-tr">Apply Scale/Rot (Ctrl+A)</button>
+          <button class="xl-btn" id="xl-origin-geom">Origin → Geometry</button>
+          ${active && (active.type === 'curve' || active.type === 'text') ? `<button class="xl-btn xl-btn-primary" id="xl-convert-mesh">Convert → Mesh</button>` : ''}
           <button class="xl-btn xl-btn-danger" id="xl-del-obj">${d.deleteObj}</button>
         </div>
       </div>
@@ -237,7 +249,7 @@ function renderPropertiesTab(
   const mods: ModifierType[] = [
     'subsurf', 'mirror', 'solidify', 'bevel', 'array', 'boolean',
     'decimate', 'remesh', 'displace', 'wireframe', 'cast', 'screw',
-    'weightedNormal', 'geometryNodes',
+    'weld', 'weightedNormal', 'geometryNodes',
   ];
   const physicsTypes: PhysicsType[] = ['none', 'rigidBody', 'cloth', 'softBody', 'fluid', 'particles', 'hair', 'forceField'];
   const engines: RenderEngine[] = ['workbench', 'eevee', 'cycles'];
@@ -269,11 +281,44 @@ function renderPropertiesTab(
           `).join('')}
         </div>
 
+        ${obj.text3d ? `
+          <div class="xl-section-card">
+            <div class="xl-card-title">3D Text Properties</div>
+            <div class="xl-field-group">
+              <label>Text Content</label>
+              <input type="text" class="xl-input" id="xl-text3d-val" value="${obj.text3d.text}" />
+            </div>
+            <div class="xl-slider-row">
+              <label>Extrude (${obj.text3d.extrude.toFixed(2)})</label>
+              <input type="range" min="0.04" max="0.8" step="0.02" value="${obj.text3d.extrude}" id="xl-text3d-ext" />
+            </div>
+            <button class="xl-btn xl-btn-primary" id="xl-convert-mesh">Convert Text → Mesh</button>
+          </div>
+        ` : ''}
+
+        ${obj.curve ? `
+          <div class="xl-section-card">
+            <div class="xl-card-title">Curve Properties (Bezier)</div>
+            <div class="xl-slider-row">
+              <label>Bevel Thickness (${obj.curve.bevelDepth.toFixed(2)})</label>
+              <input type="range" min="0.02" max="0.35" step="0.01" value="${obj.curve.bevelDepth}" id="xl-curve-bev" />
+            </div>
+            <div class="xl-chip-row">
+              <button class="xl-chip ${obj.curve.closed ? 'active' : ''}" id="xl-curve-closed">${obj.curve.closed ? 'Closed Loop' : 'Open Spline'}</button>
+              <button class="xl-btn xl-btn-primary" id="xl-convert-mesh">Convert Curve → Mesh</button>
+            </div>
+          </div>
+        ` : ''}
+
         ${obj.light ? `
           <div class="xl-section-card">
             <div class="xl-card-title">Light Properties</div>
             <div class="xl-chip-row">
               ${lightKinds.map((lk) => `<button class="xl-chip ${obj.light!.kind === lk ? 'active' : ''}" data-light-kind="${lk}">${lk.toUpperCase()}</button>`).join('')}
+            </div>
+            <div class="xl-slider-row">
+              <label>Color</label>
+              <input type="color" value="${obj.light.color}" id="xl-light-color" />
             </div>
             <div class="xl-slider-row">
               <label>Power (${obj.light.power.toFixed(0)} W)</label>
@@ -302,6 +347,7 @@ function renderPropertiesTab(
               <div class="xl-mod-row" style="margin-top:0;padding:0;border:none;background:transparent;">
                 <strong>${m.name}</strong>
                 <div>
+                  <button class="xl-chip xl-chip-sm" data-apply-mod="${m.id}" title="Bake Modifier to Mesh">✓ Apply</button>
                   <button class="xl-chip xl-chip-sm ${m.enabled ? 'active' : ''}" data-toggle-mod="${m.id}">${m.enabled ? 'ON' : 'OFF'}</button>
                   <button class="xl-chip xl-chip-sm" data-del-mod="${m.id}">✕</button>
                 </div>
@@ -657,9 +703,36 @@ function bindInteractions(
       store.toggleObjectVisibility((el as HTMLElement).dataset.toggleVis!);
     })
   );
+  container.querySelectorAll('[data-toggle-lock]').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      store.toggleObjectLocked((el as HTMLElement).dataset.toggleLock!);
+    })
+  );
   container.querySelector('#xl-dup-obj')?.addEventListener('click', () => store.duplicateActiveObject());
   container.querySelector('#xl-del-obj')?.addEventListener('click', () => store.deleteActiveObject());
+  container.querySelector('#xl-join-obj')?.addEventListener('click', () => store.joinWithNextMesh());
+  container.querySelector('#xl-apply-tr')?.addEventListener('click', () => store.applyAllTransforms());
+  container.querySelector('#xl-origin-geom')?.addEventListener('click', () => store.originToGeometry());
+  container.querySelector('#xl-convert-mesh')?.addEventListener('click', () => store.convertToMesh());
   container.querySelector('#xl-add-shapekey')?.addEventListener('click', () => store.addShapeKey());
+
+  container.querySelector('#xl-text3d-val')?.addEventListener('change', (e) => {
+    store.updateText3DData({ text: (e.target as HTMLInputElement).value });
+  });
+  container.querySelector('#xl-text3d-ext')?.addEventListener('change', (e) => {
+    store.updateText3DData({ extrude: parseFloat((e.target as HTMLInputElement).value) });
+  });
+  container.querySelector('#xl-curve-bev')?.addEventListener('change', (e) => {
+    store.updateCurveData({ bevelDepth: parseFloat((e.target as HTMLInputElement).value) });
+  });
+  container.querySelector('#xl-curve-closed')?.addEventListener('click', () => {
+    const obj = store.getActiveObject();
+    if (obj?.curve) store.updateCurveData({ closed: !obj.curve.closed });
+  });
+  container.querySelector('#xl-light-color')?.addEventListener('change', (e) => {
+    store.updateLight({ color: (e.target as HTMLInputElement).value });
+  });
 
   container.querySelectorAll('[data-light-kind]').forEach((el) =>
     el.addEventListener('click', () => store.updateLight({ kind: (el as HTMLElement).dataset.lightKind as LightKind }))
@@ -667,6 +740,9 @@ function bindInteractions(
 
   container.querySelectorAll('[data-add-mod]').forEach((el) =>
     el.addEventListener('click', () => store.addModifier((el as HTMLElement).dataset.addMod as ModifierType))
+  );
+  container.querySelectorAll('[data-apply-mod]').forEach((el) =>
+    el.addEventListener('click', () => store.applyModifier((el as HTMLElement).dataset.applyMod!))
   );
   container.querySelectorAll('[data-toggle-mod]').forEach((el) =>
     el.addEventListener('click', () => store.toggleModifier((el as HTMLElement).dataset.toggleMod!))

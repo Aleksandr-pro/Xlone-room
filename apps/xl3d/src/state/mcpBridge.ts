@@ -459,12 +459,36 @@ class XL3DMcpBridge {
       else if (op === 'triangulate') editOps.triangulateMesh(m);
       else if (op === 'tris_to_quads') editOps.trisToQuads(m);
       else if (op === 'merge') editOps.mergeVerticesToCenter(m, 'vertex');
+      else if (op === 'bridge_fill') editOps.bridgeOrFillSelection(m, 'face');
+      else if (op === 'dissolve') editOps.dissolveSelection(m, 'face');
+      else if (op === 'shrink_fatten') editOps.shrinkFattenSelection(m, 'vertex', amount || 0.15);
+      else if (op === 'spin') editOps.spinSelection(m, 'vertex', 90, 4);
+      else if (op === 'duplicate_faces') editOps.duplicateSelectedFaces(m);
       else if (op === 'looptools_circle') editOps.loopToolsCircle(m, 'face');
       else if (op === 'uv_unwrap') editOps.uvUnwrap(m, true);
       else if (op === 'shade_smooth') editOps.shadeSmoothByAngle(m, 35);
       store.commitLiveChange();
       return {
         content: [{ type: 'text', text: JSON.stringify({ object: obj.name, op, vertices: m.vertices.length, faces: m.faces.length }, null, 2) }],
+      };
+    }
+
+    if (tool === 'object_action') {
+      const obj = findObj(args.target);
+      if (!obj) return { isError: true, content: [{ type: 'text', text: 'Объект не найден' }] };
+      store.setActiveObject(obj.id);
+      const act = String(args.action ?? 'duplicate');
+      if (act === 'duplicate') store.duplicateActiveObject();
+      else if (act === 'apply_transforms') store.applyAllTransforms();
+      else if (act === 'origin_to_geometry') store.originToGeometry();
+      else if (act === 'join') store.joinWithNextMesh();
+      else if (act === 'convert_to_mesh') store.convertToMesh();
+      else if (act === 'apply_modifiers') {
+        const ids = obj.modifiers.map((m) => m.id);
+        for (const id of ids) store.applyModifier(id);
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, action: act, objectCount: store.scene.objects.length }, null, 2) }],
       };
     }
 

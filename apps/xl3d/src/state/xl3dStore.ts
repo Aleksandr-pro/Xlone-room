@@ -1,9 +1,10 @@
 import { detectLocale, getXL3DDict, saveLocale, type Locale } from '../core/i18n';
-import { getCameraBasis, inverseRotateVec3, uid, type OrbitCamera } from '../core/math3d';
+import { getCameraBasis, inverseRotateVec3, transformVec3, uid, type OrbitCamera } from '../core/math3d';
 import type {
   BakeType,
   CameraData,
   CodeScript,
+  CurveData,
   EditSelectMode,
   InteractionMode,
   LightData,
@@ -18,6 +19,7 @@ import type {
   SculptBrush,
   SculptSettings,
   SubEditorKind,
+  Text3DData,
   TextureBrushType,
   ToolGizmo,
   Vec3,
@@ -27,7 +29,7 @@ import type {
   XL3DScene,
 } from '../core/types';
 import * as editOps from '../engine/editOps';
-import { createDefaultModifier } from '../engine/modifiers';
+import { applySingleModifier, createDefaultModifier } from '../engine/modifiers';
 import { bakeMeshMap, paintVertexColor, paintVertexWeight } from '../engine/paintAndBake';
 import {
   gaussianSmoothKeyframes,
@@ -37,7 +39,15 @@ import {
   vseBladeCut,
   vseRippleDelete,
 } from '../engine/physicsAndAnim';
-import { createDefaultXL3DScene, createSceneObject, type MeshPrimitiveKind } from '../engine/primitives';
+import {
+  buildEdgesFromFaces,
+  buildMeshFromCurve,
+  buildMeshFromText3D,
+  createDefaultXL3DScene,
+  createSceneObject,
+  recomputeNormals,
+  type MeshPrimitiveKind,
+} from '../engine/primitives';
 import {
   BUILTIN_SCRIPT_TEMPLATES,
   executeBlenderScript,
@@ -77,6 +87,8 @@ export class XL3DStore {
   editOpAmount = 0.4;
   pivotMode: 'median' | 'cursor' = 'median';
   additiveSelect = false;
+  snapEnabled = false;
+  activeGizmoAxis: 'x' | 'y' | 'z' | null = null;
 
   selectedBoneId: string | null = null;
   selectedNodeId: string | null = null;
@@ -328,6 +340,29 @@ export class XL3DStore {
     this.emitAll();
   }
 
+  setCameraViewActive(): void {
+    const camObj = this.scene.objects.find((o) => o.type === 'camera' && o.visible);
+    if (!camObj) return;
+    const dx = -camObj.location.x;
+    const dy = -camObj.location.y;
+    const dz = 0.6 - camObj.location.z;
+    const dist = Math.max(1.5, Math.hypot(dx, dy, dz));
+    this.camera.target = { x: 0, y: 0, z: 0.6 };
+    this.camera.distance = dist;
+    this.camera.yaw = Math.atan2(camObj.location.y, camObj.location.x);
+    this.camera.pitch = clamp(Math.asin(clamp((camObj.location.z - 0.6) / dist, -0.98, 0.98)), -1.45, 1.45);
+    if (camObj.camera?.focalLength) {
+      this.camera.fovDeg = clamp(Math.round(2 * Math.atan(18 / camObj.camera.focalLength) * (180 / Math.PI)), 18, 95);
+    }
+    this.emitAll();
+  }
+
+  toggleWireframe(): void {
+    this.scene.render.engine = 'workbench';
+    this.scene.render.workbenchShading = this.scene.render.workbenchShading === 'wireframe' ? 'solid' : 'wireframe';
+    this.emitAll();
+  }
+
   addObject(type: ObjectType, prim: MeshPrimitiveKind = 'cube', name?: string): SceneObject {
     this.pushUndo();
     const obj = createSceneObject(type, name, prim, this.scene.activeMaterialId);
@@ -370,6 +405,126 @@ export class XL3DStore {
     this.emitAll();
   }
 
+  toggleObjectLocked(id: string): void {
+    const o = this.scene.objects.find((x) => x.id === id);
+    if (!o) return;
+    o.locked = !o.locked;
+    this.emitAll();
+  }
+
+  renameObject(id: string, name: string): void {
+    const o = this.scene.objects.find((x) => x.id === id);
+    if (!o || !name.trim()) return;
+    this.pushUndo();
+    o.name = name.trim();
+    this.emitAll();
+  }
+
+  // Ctrl+A: Apply Location / Rotation / Scale directly into mesh vertices
+  applyAllTransforms(): void {
+    const obj = this.getActiveObject();
+    if (!obj?.mesh) return;
+    this.pushUndo();
+    for (const v of obj.mesh.vertices) {
+      v.pos = transformVec3(v.pos, obj.location, obj.rotation, obj.scale);
+    }
+    obj.location = { x: 0, y: 0, z: 0 };
+    obj.rotation = { x: 0, y: 0, z: 0 };
+    obj.scale = { x: 1, y: 1, z: 1 };
+    recomputeNormals(obj.mesh);
+    this.emitAll();
+  }
+
+  // Set Origin -> Origin to Geometry
+  originToGeometry(): void {
+    const obj = this.getActiveObject();
+    if (!obj?.mesh || obj.mesh.vertices.length === 0) return;
+    this.pushUndo();
+    let cx = 0, cy = 0, cz = 0;
+    for (const v of obj.mesh.vertices) {
+      cx += v.pos.x; cy += v.pos.y; cz += v.pos.z;
+    }
+    const n = obj.mesh.vertices.length;
+    cx /= n; cy /= n; cz /= n;
+    for (const v of obj.mesh.vertices) {
+      v.pos.x -= cx; v.pos.y -= cy; v.pos.z -= cz;
+    }
+    obj.location.x += cx * obj.scale.x;
+    obj.location.y += cy * obj.scale.y;
+    obj.location.z += cz * obj.scale.z;
+    this.emitAll();
+  }
+
+  // Ctrl+J: Join active mesh with another mesh object
+  joinWithNextMesh(): boolean {
+    const active = this.getActiveObject();
+    if (!active?.mesh) return false;
+    const other = this.scene.objects.find((o) => o.id !== active.id && o.type === 'mesh' && o.mesh && o.visible);
+    if (!other?.mesh) return false;
+    this.pushUndo();
+    const vOffset = active.mesh.vertices.length;
+    for (const ov of other.mesh.vertices) {
+      const wp = transformVec3(ov.pos, other.location, other.rotation, other.scale);
+      active.mesh.vertices.push({
+        ...ov,
+        id: uid('v'),
+        pos: {
+          x: (wp.x - active.location.x) / Math.max(0.05, active.scale.x),
+          y: (wp.y - active.location.y) / Math.max(0.05, active.scale.y),
+          z: (wp.z - active.location.z) / Math.max(0.05, active.scale.z),
+        },
+        normal: { ...ov.normal },
+        uv: { ...ov.uv },
+        color: [...ov.color] as [number, number, number],
+        weights: { ...ov.weights },
+      });
+    }
+    for (const oface of other.mesh.faces) {
+      active.mesh.faces.push({
+        ...oface,
+        verts: oface.verts.map((vi) => vi + vOffset),
+        normal: { ...oface.normal },
+      });
+    }
+    active.mesh.edges = buildEdgesFromFaces(active.mesh.faces);
+    recomputeNormals(active.mesh);
+    this.scene.objects = this.scene.objects.filter((o) => o.id !== other.id);
+    this.emitAll();
+    return true;
+  }
+
+  // Convert Curve / Text3D / Surface / Metaball -> Editable Mesh
+  convertToMesh(): boolean {
+    const obj = this.getActiveObject();
+    if (!obj) return false;
+    if (obj.type === 'mesh' && obj.mesh) return true;
+    this.pushUndo();
+    if (obj.type === 'curve' && obj.curve) obj.mesh = buildMeshFromCurve(obj.curve);
+    else if (obj.type === 'text' && obj.text3d) obj.mesh = buildMeshFromText3D(obj.text3d);
+    if (!obj.mesh) return false;
+    obj.type = 'mesh';
+    this.emitAll();
+    return true;
+  }
+
+  updateText3DData(patch: Partial<Text3DData>): void {
+    const obj = this.getActiveObject();
+    if (!obj?.text3d) return;
+    this.pushUndo();
+    Object.assign(obj.text3d, patch);
+    obj.mesh = buildMeshFromText3D(obj.text3d);
+    this.emitAll();
+  }
+
+  updateCurveData(patch: Partial<CurveData>): void {
+    const obj = this.getActiveObject();
+    if (!obj?.curve) return;
+    this.pushUndo();
+    Object.assign(obj.curve, patch);
+    obj.mesh = buildMeshFromCurve(obj.curve);
+    this.emitAll();
+  }
+
   updateActiveTransform(
     section: 'location' | 'rotation' | 'scale',
     axis: 'x' | 'y' | 'z',
@@ -388,22 +543,42 @@ export class XL3DStore {
     worldDelta: Vec3,
     dxPx: number,
     dyPx: number,
-    livePreviewOnly = true
+    livePreviewOnly = true,
+    axisConstraint: 'x' | 'y' | 'z' | null = this.activeGizmoAxis
   ): void {
     const obj = this.getActiveObject();
-    if (!obj) return;
+    if (!obj || obj.locked) return;
+    const snapMove = (v: number) => (this.snapEnabled ? Math.round(v * 4) / 4 : v);
+    const snapRot = (v: number) => (this.snapEnabled ? Math.round(v / 15) * 15 : v);
+
     if (this.tool === 'move') {
-      obj.location.x += worldDelta.x;
-      obj.location.y += worldDelta.y;
-      obj.location.z += worldDelta.z;
+      if (axisConstraint === 'x') obj.location.x = snapMove(obj.location.x + worldDelta.x);
+      else if (axisConstraint === 'y') obj.location.y = snapMove(obj.location.y + worldDelta.y);
+      else if (axisConstraint === 'z') obj.location.z = snapMove(obj.location.z + worldDelta.z);
+      else {
+        obj.location.x = snapMove(obj.location.x + worldDelta.x);
+        obj.location.y = snapMove(obj.location.y + worldDelta.y);
+        obj.location.z = snapMove(obj.location.z + worldDelta.z);
+      }
     } else if (this.tool === 'rotate') {
-      obj.rotation.z += dxPx * 0.65;
-      obj.rotation.x += dyPx * 0.55;
+      const deltaDeg = (dxPx - dyPx) * 0.65;
+      if (axisConstraint === 'x') obj.rotation.x = snapRot(obj.rotation.x + deltaDeg);
+      else if (axisConstraint === 'y') obj.rotation.y = snapRot(obj.rotation.y + deltaDeg);
+      else if (axisConstraint === 'z') obj.rotation.z = snapRot(obj.rotation.z + deltaDeg);
+      else {
+        obj.rotation.z = snapRot(obj.rotation.z + dxPx * 0.65);
+        obj.rotation.x = snapRot(obj.rotation.x + dyPx * 0.55);
+      }
     } else if (this.tool === 'scale') {
       const sf = Math.max(0.15, 1 + (dxPx - dyPx) * 0.008);
-      obj.scale.x *= sf;
-      obj.scale.y *= sf;
-      obj.scale.z *= sf;
+      if (axisConstraint === 'x') obj.scale.x *= sf;
+      else if (axisConstraint === 'y') obj.scale.y *= sf;
+      else if (axisConstraint === 'z') obj.scale.z *= sf;
+      else {
+        obj.scale.x *= sf;
+        obj.scale.y *= sf;
+        obj.scale.z *= sf;
+      }
     }
     if (livePreviewOnly) this.emitViewport();
     else this.emitAll();
@@ -418,20 +593,42 @@ export class XL3DStore {
     this.emitAll();
   }
 
-  transformEditSelection(worldDelta: Vec3, dxPx: number, dyPx: number): void {
+  transformEditSelection(
+    worldDelta: Vec3,
+    dxPx: number,
+    dyPx: number,
+    axisConstraint: 'x' | 'y' | 'z' | null = this.activeGizmoAxis
+  ): void {
     const obj = this.getActiveObject();
     if (!obj?.mesh) return;
     const propR = this.proportionalEditing ? this.proportionalRadius : 0;
     const camFwdLocal = this.getCamForwardLocal(obj);
     if (this.tool === 'move') {
-      const localDelta = inverseRotateVec3(worldDelta, obj.rotation);
+      const masked =
+        axisConstraint === 'x'
+          ? { x: worldDelta.x, y: 0, z: 0 }
+          : axisConstraint === 'y'
+          ? { x: 0, y: worldDelta.y, z: 0 }
+          : axisConstraint === 'z'
+          ? { x: 0, y: 0, z: worldDelta.z }
+          : worldDelta;
+      const localDelta = inverseRotateVec3(masked, obj.rotation);
       localDelta.x /= Math.max(0.1, obj.scale.x);
       localDelta.y /= Math.max(0.1, obj.scale.y);
       localDelta.z /= Math.max(0.1, obj.scale.z);
       editOps.translateSelection(obj.mesh, this.editSelectMode, localDelta, propR, camFwdLocal);
     } else if (this.tool === 'rotate') {
       const pivot = this.pivotMode === 'cursor' ? this.scene.cursor3D : undefined;
-      editOps.rotateSelection(obj.mesh, this.editSelectMode, { x: dyPx * 0.6, y: 0, z: dxPx * 0.6 }, pivot);
+      const d = (dxPx - dyPx) * 0.6;
+      const rot =
+        axisConstraint === 'x'
+          ? { x: d, y: 0, z: 0 }
+          : axisConstraint === 'y'
+          ? { x: 0, y: d, z: 0 }
+          : axisConstraint === 'z'
+          ? { x: 0, y: 0, z: d }
+          : { x: dyPx * 0.6, y: 0, z: dxPx * 0.6 };
+      editOps.rotateSelection(obj.mesh, this.editSelectMode, rot, pivot);
     } else if (this.tool === 'scale') {
       const pivot = this.pivotMode === 'cursor' ? this.scene.cursor3D : undefined;
       const sf = Math.max(0.25, 1 + (dxPx - dyPx) * 0.008);
@@ -454,15 +651,28 @@ export class XL3DStore {
       case 'bevel': editOps.bevelSelection(m, clamp(amt * 0.4, 0.05, 0.45)); break;
       case 'loopcut': editOps.loopCutMesh(m, 1); break;
       case 'knife': editOps.knifeBisect(m, 0, false); break;
-      case 'bridge': editOps.bridgeOrFill(m); break;
+      case 'bridge': editOps.bridgeOrFillSelection(m, this.editSelectMode); break;
       case 'merge': editOps.mergeVerticesToCenter(m, this.editSelectMode); break;
-      case 'dissolve': editOps.dissolveSelected(m); break;
-      case 'spin': editOps.spinMesh(m, 4, 90); break;
+      case 'dissolve': editOps.dissolveSelection(m, this.editSelectMode); break;
+      case 'duplicate_faces': editOps.duplicateSelectedFaces(m); break;
+      case 'separate_selection': {
+        const separated = editOps.extractSelectedFacesAsMesh(m);
+        if (separated) {
+          const part = createSceneObject('mesh', `${obj.name}_Part`, 'cube', obj.materialId);
+          part.location = { ...obj.location };
+          part.rotation = { ...obj.rotation };
+          part.scale = { ...obj.scale };
+          part.mesh = separated;
+          this.scene.objects.push(part);
+        }
+        break;
+      }
+      case 'spin': editOps.spinSelection(m, this.editSelectMode, 90, 4); break;
       case 'polybuild': editOps.polyBuildQuad(m, { x: 0, y: 0, z: 1.1 }); break;
       case 'subdivide': editOps.subdivideMesh(m, false); break;
       case 'triangulate': editOps.triangulateMesh(m); break;
       case 'tris_to_quads': editOps.trisToQuads(m); break;
-      case 'shrink_fatten': editOps.shrinkFatten(m, this.editSelectMode, amt * 0.4); break;
+      case 'shrink_fatten': editOps.shrinkFattenSelection(m, this.editSelectMode, amt * 0.4); break;
       case 'smooth_verts': editOps.smoothVertices(m, this.editSelectMode, 0.4); break;
       case 'poke_faces': editOps.pokeFaces(m); break;
       case 'flip_normals': editOps.flipNormals(m); break;
@@ -473,6 +683,8 @@ export class XL3DStore {
       case 'select_all': editOps.selectAll(m, true); break;
       case 'select_none': editOps.selectAll(m, false); break;
       case 'select_invert': editOps.selectAll(m, 'invert'); break;
+      case 'select_grow': editOps.growOrShrinkSelection(m, true); break;
+      case 'select_shrink': editOps.growOrShrinkSelection(m, false); break;
       case 'select_similar': editOps.selectSimilar(m); break;
       case 'select_loop': editOps.selectLoopOrRing(m); break;
       case 'select_linked': editOps.selectLinked(m); break;
@@ -493,6 +705,17 @@ export class XL3DStore {
     if (!obj) return;
     this.pushUndo();
     obj.modifiers.push(createDefaultModifier(type));
+    this.emitAll();
+  }
+
+  applyModifier(modId: string): void {
+    const obj = this.getActiveObject();
+    const mod = obj?.modifiers.find((m) => m.id === modId);
+    if (!obj?.mesh || !mod) return;
+    this.pushUndo();
+    applySingleModifier(obj.mesh, mod, (this.scene.currentFrame - 1) / Math.max(1, this.scene.fps), obj, this.scene.objects);
+    recomputeNormals(obj.mesh);
+    obj.modifiers = obj.modifiers.filter((m) => m.id !== modId);
     this.emitAll();
   }
 

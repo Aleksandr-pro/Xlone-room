@@ -1,5 +1,6 @@
 import { computeFaceNormal, norm3, uid } from '../core/math3d';
 import type {
+  CurveData,
   Edge,
   Face,
   MaterialData,
@@ -8,6 +9,7 @@ import type {
   ObjectType,
   PhysicsSettings,
   SceneObject,
+  Text3DData,
   Vec3,
   Vertex,
   XL3DScene,
@@ -230,6 +232,225 @@ export function createMeshPrimitive(kind: MeshPrimitiveKind, size = 1): MeshData
   return mesh;
 }
 
+function makeFace(verts: number[], smooth = false): Face {
+  return {
+    verts,
+    normal: { x: 0, y: 0, z: 1 },
+    smooth,
+    materialIndex: 0,
+    faceSet: 1,
+    selected: false,
+  };
+}
+
+export function buildMeshFromCurve(curve: CurveData): MeshData {
+  const pts = curve.points;
+  if (pts.length < 2) return createMeshPrimitive('cylinder', 0.2);
+
+  const samplePts: Vec3[] = [];
+  const segCount = curve.closed ? pts.length : pts.length - 1;
+  const steps = Math.max(4, Math.min(24, curve.resolution || 10));
+
+  for (let i = 0; i < segCount; i++) {
+    const p0 = pts[i];
+    const p1 = pts[(i + 1) % pts.length];
+    const c0 = p0.pos;
+    const c1 = p0.handleRight;
+    const c2 = p1.handleLeft;
+    const c3 = p1.pos;
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const u = 1 - t;
+      const b0 = u * u * u;
+      const b1 = 3 * u * u * t;
+      const b2 = 3 * u * t * t;
+      const b3 = t * t * t;
+      samplePts.push({
+        x: b0 * c0.x + b1 * c1.x + b2 * c2.x + b3 * c3.x,
+        y: b0 * c0.y + b1 * c1.y + b2 * c2.y + b3 * c3.y,
+        z: b0 * c0.z + b1 * c1.z + b2 * c2.z + b3 * c3.z,
+      });
+    }
+  }
+  if (!curve.closed) samplePts.push({ ...pts[pts.length - 1].pos });
+
+  const sides = 6;
+  const r = Math.max(0.03, curve.bevelDepth || 0.08);
+  const verts: Vertex[] = [];
+  const faces: Face[] = [];
+
+  for (let i = 0; i < samplePts.length; i++) {
+    const cur = samplePts[i];
+    const prev = samplePts[Math.max(0, i - 1)];
+    const next = samplePts[Math.min(samplePts.length - 1, i + 1)];
+    const tang = norm3({ x: next.x - prev.x, y: next.y - prev.y, z: next.z - prev.z });
+    const up = Math.abs(tang.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 };
+    const binorm = norm3({
+      x: tang.y * up.z - tang.z * up.y,
+      y: tang.z * up.x - tang.x * up.z,
+      z: tang.x * up.y - tang.y * up.x,
+    });
+    const norm = norm3({
+      x: binorm.y * tang.z - binorm.z * tang.y,
+      y: binorm.z * tang.x - binorm.x * tang.z,
+      z: binorm.x * tang.y - binorm.y * tang.x,
+    });
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2;
+      const ca = Math.cos(a) * r;
+      const sa = Math.sin(a) * r;
+      verts.push(
+        makeVert(
+          {
+            x: cur.x + binorm.x * ca + norm.x * sa,
+            y: cur.y + binorm.y * ca + norm.y * sa,
+            z: cur.z + binorm.z * ca + norm.z * sa,
+          },
+          i / Math.max(1, samplePts.length - 1),
+          k / sides
+        )
+      );
+    }
+  }
+
+  const ringCount = samplePts.length;
+  for (let i = 0; i < ringCount - 1; i++) {
+    for (let k = 0; k < sides; k++) {
+      const kn = (k + 1) % sides;
+      faces.push(makeFace([i * sides + k, i * sides + kn, (i + 1) * sides + kn, (i + 1) * sides + k], true));
+    }
+  }
+  if (curve.closed && ringCount > 2) {
+    const last = ringCount - 1;
+    for (let k = 0; k < sides; k++) {
+      const kn = (k + 1) % sides;
+      faces.push(makeFace([last * sides + k, last * sides + kn, kn, k], true));
+    }
+  }
+
+  const mesh: MeshData = {
+    vertices: verts,
+    edges: buildEdgesFromFaces(faces),
+    faces,
+    autoSmoothAngle: 45,
+    customSplitNormals: false,
+    udimTile: 1001,
+    uvSyncSelection: false,
+  };
+  recomputeNormals(mesh);
+  return mesh;
+}
+
+const FONT_3X5: Record<string, string[]> = {
+  A: ['010', '101', '111', '101', '101'],
+  B: ['110', '101', '110', '101', '110'],
+  C: ['011', '100', '100', '100', '011'],
+  D: ['110', '101', '101', '101', '110'],
+  E: ['111', '100', '110', '100', '111'],
+  F: ['111', '100', '110', '100', '100'],
+  G: ['011', '100', '101', '101', '011'],
+  H: ['101', '101', '111', '101', '101'],
+  I: ['111', '010', '010', '010', '111'],
+  J: ['001', '001', '001', '101', '010'],
+  K: ['101', '101', '110', '101', '101'],
+  L: ['100', '100', '100', '100', '111'],
+  M: ['101', '111', '101', '101', '101'],
+  N: ['101', '111', '111', '101', '101'],
+  O: ['010', '101', '101', '101', '010'],
+  P: ['110', '101', '110', '100', '100'],
+  Q: ['010', '101', '101', '111', '011'],
+  R: ['110', '101', '110', '101', '101'],
+  S: ['011', '100', '010', '001', '110'],
+  T: ['111', '010', '010', '010', '010'],
+  U: ['101', '101', '101', '101', '111'],
+  V: ['101', '101', '101', '101', '010'],
+  W: ['101', '101', '101', '111', '101'],
+  X: ['101', '101', '010', '101', '101'],
+  Y: ['101', '101', '010', '010', '010'],
+  Z: ['111', '001', '010', '100', '111'],
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '001', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+  '-': ['000', '000', '111', '000', '000'],
+  '!': ['010', '010', '010', '000', '010'],
+  '.': ['000', '000', '000', '000', '010'],
+  ' ': ['000', '000', '000', '000', '000'],
+};
+
+export function buildMeshFromText3D(t3d: Text3DData): MeshData {
+  const txt = (t3d.text || 'XL3D').toUpperCase().slice(0, 14);
+  const cell = Math.max(0.08, (t3d.size || 1.2) * 0.14);
+  const depth = Math.max(0.04, t3d.extrude || 0.2);
+  const charAdvance = cell * 4;
+  const totalW = Math.max(cell, txt.length * charAdvance - cell);
+  const startX = t3d.align === 'center' ? -totalW * 0.5 : t3d.align === 'right' ? -totalW : 0;
+
+  const verts: Vertex[] = [];
+  const faces: Face[] = [];
+
+  const pushBox = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) => {
+    const b = verts.length;
+    verts.push(
+      makeVert({ x: x0, y: y0, z: z0 }, 0, 0),
+      makeVert({ x: x1, y: y0, z: z0 }, 1, 0),
+      makeVert({ x: x1, y: y1, z: z0 }, 1, 1),
+      makeVert({ x: x0, y: y1, z: z0 }, 0, 1),
+      makeVert({ x: x0, y: y0, z: z1 }, 0, 0),
+      makeVert({ x: x1, y: y0, z: z1 }, 1, 0),
+      makeVert({ x: x1, y: y1, z: z1 }, 1, 1),
+      makeVert({ x: x0, y: y1, z: z1 }, 0, 1)
+    );
+    faces.push(
+      makeFace([b + 3, b + 2, b + 1, b + 0]),
+      makeFace([b + 4, b + 5, b + 6, b + 7]),
+      makeFace([b + 0, b + 1, b + 5, b + 4]),
+      makeFace([b + 1, b + 2, b + 6, b + 5]),
+      makeFace([b + 2, b + 3, b + 7, b + 6]),
+      makeFace([b + 3, b + 0, b + 4, b + 7])
+    );
+  };
+
+  for (let ci = 0; ci < txt.length; ci++) {
+    const glyph = FONT_3X5[txt[ci]] ?? FONT_3X5['X'];
+    const gx = startX + ci * charAdvance;
+    for (let row = 0; row < 5; row++) {
+      const z0 = (4 - row) * cell;
+      const z1 = z0 + cell * 0.96;
+      let col = 0;
+      while (col < 3) {
+        if (glyph[row][col] === '1') {
+          let endCol = col;
+          while (endCol + 1 < 3 && glyph[row][endCol + 1] === '1') endCol++;
+          pushBox(gx + col * cell, gx + (endCol + 1) * cell * 0.98, -depth * 0.5, depth * 0.5, z0, z1);
+          col = endCol + 1;
+        } else {
+          col++;
+        }
+      }
+    }
+  }
+
+  if (verts.length === 0) return createMeshPrimitive('cube', 0.4);
+  const mesh: MeshData = {
+    vertices: verts,
+    edges: buildEdgesFromFaces(faces),
+    faces,
+    autoSmoothAngle: 30,
+    customSplitNormals: false,
+    udimTile: 1001,
+    uvSyncSelection: false,
+  };
+  recomputeNormals(mesh);
+  return mesh;
+}
+
 export function createSceneObject(
   type: ObjectType,
   name?: string,
@@ -275,6 +496,7 @@ export function createSceneObject(
           { pos: { x: 1.4, y: -0.2, z: 0.2 }, handleLeft: { x: 0.9, y: -0.8, z: 0.2 }, handleRight: { x: 1.9, y: 0.4, z: 0.2 }, radius: 1, tilt: 0 },
         ],
       };
+      base.mesh = buildMeshFromCurve(base.curve);
       break;
     case 'surface':
       base.name = name ?? 'NURBS Surface';
@@ -304,7 +526,7 @@ export function createSceneObject(
     case 'text':
       base.name = name ?? '3D Text';
       base.text3d = { text: 'XL3D', size: 1.2, extrude: 0.2, bevelDepth: 0.04, align: 'center' };
-      base.mesh = createMeshPrimitive('cube', 0.7);
+      base.mesh = buildMeshFromText3D(base.text3d);
       break;
     case 'lattice':
       base.name = name ?? 'Lattice';
