@@ -22,7 +22,7 @@ export function saveLocale(l: Locale): void {
 
 export interface XL3DDict {
   modes: Record<'object' | 'edit' | 'sculpt' | 'paint' | 'pose' | 'grease', string>;
-  tabs: Record<'outliner' | 'tools' | 'properties' | 'nodes' | 'animation' | 'editors', string>;
+  tabs: Record<'outliner' | 'tools' | 'properties' | 'nodes' | 'animation' | 'scripting' | 'editors', string>;
   renderBtn: string;
   assetsBtn: string;
   undo: string;
@@ -55,6 +55,7 @@ export interface XL3DDict {
   renderSettingsTitle: string;
   nodeGraphTitle: string;
   animTitle: string;
+  scriptingTitle: string;
   vseTitle: string;
   spreadsheetTitle: string;
   assetBrowserTitle: string;
@@ -83,6 +84,7 @@ const RU: XL3DDict = {
     properties: 'Свойства',
     nodes: 'Ноды',
     animation: 'Анимация',
+    scripting: 'Код',
     editors: 'Редакторы',
   },
   renderBtn: 'Рендер',
@@ -132,6 +134,7 @@ const RU: XL3DDict = {
   renderSettingsTitle: 'Движок рендера и Color Management',
   nodeGraphTitle: 'Редактор нод (Shader / Geometry / Compositor)',
   animTitle: 'Таймлайн, Ключи (F-Curves), Shape Keys & Rig',
+  scriptingTitle: 'Scripting / Редактор кода (bpy & bmesh)',
   vseTitle: 'Видеомонтаж (VSE 5.3) и Motion Tracking',
   spreadsheetTitle: 'Spreadsheet — Таблица атрибутов геометрии',
   assetBrowserTitle: 'Библиотека ассетов и форматы (OBJ/STL/GLB/PLY/SPZ)',
@@ -160,6 +163,7 @@ const EN: XL3DDict = {
     properties: 'Properties',
     nodes: 'Nodes',
     animation: 'Animation',
+    scripting: 'Code',
     editors: 'Editors',
   },
   renderBtn: 'Render',
@@ -209,6 +213,7 @@ const EN: XL3DDict = {
   renderSettingsTitle: 'Render Engine & Color Management',
   nodeGraphTitle: 'Node Editor (Shader / Geometry / Compositor)',
   animTitle: 'Timeline, F-Curves, Shape Keys & Rigging',
+  scriptingTitle: 'Scripting / Code Editor (bpy & bmesh)',
   vseTitle: 'Video Sequence Editor (VSE 5.3) & Tracking',
   spreadsheetTitle: 'Geometry Spreadsheet (5.x Attributes)',
   assetBrowserTitle: 'Asset Browser & I/O (OBJ/STL/GLB/PLY/SPZ)',

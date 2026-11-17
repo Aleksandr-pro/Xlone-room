@@ -283,6 +283,6 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
-        fun getAppVersion(): String = "1.1.1"
+        fun getAppVersion(): String = "1.2.0"
     }
 }
