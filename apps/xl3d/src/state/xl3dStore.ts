@@ -1068,6 +1068,31 @@ export class XL3DStore {
     }
   }
 
+  loadCloudScene(cloudScene: XL3DScene): boolean {
+    if (!cloudScene || !Array.isArray(cloudScene.objects)) return false;
+    const def = createDefaultXL3DScene();
+    this.pushUndo();
+    this.scene = {
+      ...def,
+      ...cloudScene,
+      render: { ...def.render, ...(cloudScene.render ?? {}) },
+      world: { ...def.world, ...(cloudScene.world ?? {}) },
+      vse: { ...def.vse, ...(cloudScene.vse ?? {}) },
+      cursor3D: cloudScene.cursor3D ?? def.cursor3D,
+      materials:
+        Array.isArray(cloudScene.materials) && cloudScene.materials.length > 0
+          ? cloudScene.materials
+          : def.materials,
+      nodeGraphs:
+        Array.isArray(cloudScene.nodeGraphs) && cloudScene.nodeGraphs.length > 0
+          ? cloudScene.nodeGraphs
+          : def.nodeGraphs,
+    };
+    this.ensureScripts();
+    this.emitAll();
+    return true;
+  }
+
   resetScene(): void {
     this.pushUndo();
     this.scene = createDefaultXL3DScene();

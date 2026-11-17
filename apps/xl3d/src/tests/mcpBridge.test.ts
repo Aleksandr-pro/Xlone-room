@@ -1,16 +1,96 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createDefaultXL3DScene } from '../engine/primitives';
 import { mcpBridge } from '../state/mcpBridge';
 import { store } from '../state/xl3dStore';
 
-describe('XL3D AI / MCP Bridge Client', () => {
+describe('XL3D AI / MCP Bridge Client & Persistent Cloud Auth', () => {
   it('normalizes worker URLs for MCP HTTP and OpenAPI', () => {
     mcpBridge.updateConfig({
       serverUrl: 'https://xl3d-mcp.demo.workers.dev/',
+      activeWorkspaceId: '',
+      mcpToken: '',
       roomId: 'room1',
       token: 'tok123',
     });
     expect(mcpBridge.getMcpHttpUrl()).toBe('https://xl3d-mcp.demo.workers.dev/mcp?room=room1&token=tok123');
     expect(mcpBridge.getOpenApiUrl()).toBe('https://xl3d-mcp.demo.workers.dev/openapi.json?room=room1');
+  });
+
+  it('uses activeWorkspaceId and personal mcpToken when authenticated', () => {
+    mcpBridge.updateConfig({
+      serverUrl: 'https://xlone-room.demo.workers.dev',
+      sessionToken: 'xl3d_sess_abc',
+      mcpToken: 'xl3d_mcp_secret',
+      activeWorkspaceId: 'ws_cyber',
+      user: {
+        id: 'usr_1',
+        email: 'art@xl3d.dev',
+        name: 'Art',
+        avatarUrl: null,
+        provider: 'google',
+        activeWorkspaceId: 'ws_cyber',
+        mcpTokenPreview: 'xl3d_mcp_sec...cret',
+        createdAt: 1,
+      },
+    });
+    expect(mcpBridge.isAuthenticated()).toBe(true);
+    expect(mcpBridge.getMcpHttpUrl()).toBe(
+      'https://xlone-room.demo.workers.dev/mcp?room=ws_cyber&token=xl3d_mcp_secret'
+    );
+  });
+
+  it('pulls newer AI agent scene results on reopen without overwriting cloud state', async () => {
+    store.resetScene();
+    const agentScene = createDefaultXL3DScene();
+    agentScene.objects[0].name = 'AgentCreatedTower';
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          revision: 7,
+          scene: agentScene,
+          logs: [
+            {
+              id: 'log_1',
+              source: 'mcp',
+              toolName: 'create_mesh_from_pydata',
+              summary: 'Built AgentCreatedTower',
+              status: 'ok',
+              revision: 7,
+              createdAt: Date.now(),
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    ) as typeof fetch;
+
+    try {
+      mcpBridge.updateConfig({
+        serverUrl: 'https://xlone-room.demo.workers.dev',
+        sessionToken: 'xl3d_sess_keep',
+        activeWorkspaceId: 'ws_cyber',
+        syncedRevisions: { ws_cyber: 2 },
+        user: {
+          id: 'usr_1',
+          email: 'art@xl3d.dev',
+          name: 'Art',
+          avatarUrl: null,
+          provider: 'email',
+          activeWorkspaceId: 'ws_cyber',
+          mcpTokenPreview: 'xl3d_mcp_...',
+          createdAt: 1,
+        },
+      });
+      await mcpBridge.pullLatestWorkspaceState(true);
+      expect(mcpBridge.cloudRevision).toBe(7);
+      expect(mcpBridge.hasUnreadAgentUpdates).toBe(true);
+      expect(store.scene.objects.some((o) => o.name === 'AgentCreatedTower')).toBe(true);
+      expect(mcpBridge.agentLogs.length).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('executes get_scene_info, create_mesh_from_pydata and run_blender_script via RPC', () => {

@@ -4,13 +4,23 @@ compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-# Optional global token. Leave empty to allow per-room tokens or set via `wrangler secret put MCP_TOKEN`
+# Optional global admin token. Leave empty for per-user persistent MCP tokens & accounts.
 MCP_TOKEN = ""
+# Optional Google OAuth Client ID (or set as Cloudflare secret/variable)
+GOOGLE_CLIENT_ID = ""
 
 [[durable_objects.bindings]]
 name = "ROOM_HUB"
 class_name = "RoomHub"
 
+[[durable_objects.bindings]]
+name = "ACCOUNT_HUB"
+class_name = "AccountHub"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomHub"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountHub"]

@@ -1,55 +1,79 @@
-# XL3D MCP Server — Бесплатный хостинг на Cloudflare Workers через GitHub
+# XL3D Cloud, Auth & MCP Server — Всё на Cloudflare Workers через GitHub
 
-Этот модуль (`apps/xl3d-mcp`) превращает **XL3D** в полноценный 3D-инструмент для ИИ-агентов:
-- **Claude** (веб-версия `claude.ai`, Claude Desktop, Claude Code, Cursor) — через протокол **MCP (Streamable HTTP + `stdio`)**
-- **ChatGPT** (Custom GPT Actions) — через **OpenAPI 3.1** (`/openapi.json`)
-- **Grok / HTTP-агенты** — через REST API (`/api/*`)
-- **Телефон / Android APK XL3D** — через **WebSocket Relay** на Durable Objects (`RoomHub`) с живым обновлением 3D-вьюпорта и передачей скриншотов вьюпорта ИИ-агенту!
-
----
-
-## Шаг 1. Бесплатный деплой в Cloudflare Workers через GitHub
-
-1. Зарегистрируйтесь / войдите в бесплатный аккаунт **Cloudflare** (`dash.cloudflare.com`).
-2. Скопируйте **Account ID** (в правой колонке на главной странице Workers & Pages).
-3. Создайте API Token: **My Profile → API Tokens → Create Token → шаблон "Edit Cloudflare Workers"** → скопируйте токен.
-4. Откройте свой репозиторий на **GitHub → Settings → Secrets and variables → Actions → New repository secret** и добавьте два секрета:
-   - `CLOUDFLARE_API_TOKEN` — ваш токен из шага 3
-   - `CLOUDFLARE_ACCOUNT_ID` — ваш Account ID из шага 2
-5. Запустите workflow **GitHub → Actions → `Build & Deploy XL3D MCP (Cloudflare Worker)` → Run workflow** (или он запустится автоматически при следующем push).
-6. Через ~30 секунд ваш сервер будет доступен по адресу вида:
-   ```
-   https://xl3d-mcp.<ваш-subdomain>.workers.dev
-   ```
-   *(Вариант через Cloudflare Dashboard без GitHub Secrets: **Workers & Pages → Create → Import a repository** → выберите `Xlone-room`. Благодаря корневому `wrangler.toml` стандартные настройки Cloudflare работают «из коробки»: **Root directory**: `/`, **Build command**: `npm run build`, **Deploy command**: `npx wrangler deploy`. Тогда адрес будет вида `https://xlone-room.<ваш-subdomain>.workers.dev`.)*
+Модуль `apps/xl3d-mcp` работает полностью на бесплатном тарифе **Cloudflare Workers + Durable Objects (SQLite)** и деплоится автоматически через **GitHub**:
+- **База данных (SQLite прямо внутри Durable Objects)**: пользователи, долгоживущие сессии, личные MCP-токены, библиотека рабочих пространств (`workspaces`), сцены и журнал действий ИИ-агента (`agent_logs`) создаются и мигрируются автоматически при первом запуске — создавать отдельную внешнюю БД не нужно!
+- **Регистрация и Google Auth**: Email + пароль (PBKDF2-SHA256) работают сразу из коробки, а для входа через Google достаточно добавить `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET`.
+- **Постоянный токен**: сессия сохраняется и в `localStorage`, и в Android `SharedPreferences`, с автопродлением при каждом обращении — при закрытии приложения вход не слетает, а при открытии XL3D сразу подтягивает последние результаты работы агента.
+- **Авторизованный MCP + OpenAPI 3.1 сервер**: доступ к `/mcp`, `/api/*` и `/ws` разрешён только по личному постоянному `MCP Token` (`xl3d_mcp_...`) или токену сессии (`xl3d_sess_...`).
 
 ---
 
-## Шаг 2. Подключение телефона / XL3D.apk
+## Шаг 1. Деплой через GitHub в Cloudflare Workers (бесплатно)
 
-1. Откройте приложение **XL3D** на телефоне (v1.3.0+) или в браузере.
-2. Нажмите кнопку **`AI`** в правом верхнем углу.
-3. Вставьте URL вашего воркера: `https://xl3d-mcp.<ваш-subdomain>.workers.dev`
-4. Нажмите **`Подключиться к Worker`** (Room ID и Token сгенерируются автоматически; зелёный индикатор рядом с `AI` подтвердит соединение).
-5. Нажмите кнопку **`📋 MCP URL`** или **`📋 OpenAPI`** чтобы скопировать готовую ссылку.
+### Вариант А — Cloudflare Workers Builds (самый простой, через GitHub)
+1. Зайдите в **Cloudflare Dashboard → Workers & Pages → Create → Import a repository**.
+2. Выберите репозиторий `Aleksandr-pro/Xlone-room`.
+3. Благодаря корневому `wrangler.toml` стандартные настройки работают автоматически:
+   - **Root directory**: `/`
+   - **Build command**: `npm run build`
+   - **Deploy command**: `npx wrangler deploy`
+4. После каждого `git push` в `main` Cloudflare сам обновит Worker и применит SQLite-миграции Durable Objects (`RoomHub` и `AccountHub`).
+5. Ваш сервер будет доступен по адресу вида `https://xlone-room.<ваш-subdomain>.workers.dev`.
+
+### Вариант Б — Через GitHub Actions
+1. В **GitHub → Settings → Secrets and variables → Actions** добавьте:
+   - `CLOUDFLARE_API_TOKEN` (шаблон «Edit Cloudflare Workers»)
+   - `CLOUDFLARE_ACCOUNT_ID`
+2. Workflow `.github/workflows/xl3d-mcp-cloudflare.yml` автоматически соберёт, протестирует и задеплоит `apps/xl3d-mcp`.
 
 ---
 
-## Шаг 3. Подключение ИИ-агентов
+## Шаг 2. Настройка Google Auth (по желанию, 2 минуты)
 
-### A. Claude (Веб / iOS / Android — Custom Connector)
-1. В настройках Claude → **Connectors → Add custom connector** вставьте скопированный **MCP URL**:
-   ```
-   https://xl3d-mcp.<ваш-subdomain>.workers.dev/mcp?room=xl3d-xxxx&token=YOUR_TOKEN
-   ```
+Вход и регистрация по **Email + Пароль** работают сразу без дополнительных ключей. Чтобы включить кнопку **«Войти через Google»**:
 
-### B. Claude Code (CLI)
+1. Откройте [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
+2. Создайте **OAuth 2.0 Client ID** (тип: **Web application**).
+3. В **Authorized redirect URIs** добавьте callback вашего Worker-а:
+   ```text
+   https://<ваш-worker>.workers.dev/auth/google/callback
+   ```
+4. Скопируйте **Client ID** и **Client Secret** и добавьте их в **одно из мест**:
+   - **Cloudflare Dashboard → ваш Worker → Settings → Variables and Secrets**:
+     - `GOOGLE_CLIENT_ID`
+     - `GOOGLE_CLIENT_SECRET` (тип Secret)
+   - *Или* в **GitHub → Settings → Secrets → Actions** (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) — GitHub Actions автоматически зальёт их в Worker при деплое!
+
+*(На Android авторизация открывается в системном браузере и автоматически возвращает вас обратно в XL3D по deep-link `xl3d://auth/callback`.)*
+
+---
+
+## Шаг 3. Работа с библиотекой пространств и результатами агента в XL3D
+
+1. Откройте **XL3D** и нажмите **`👤 Войти`** в верхнем баре.
+2. Вставьте URL вашего Worker-а (`https://xlone-room.<ваш-subdomain>.workers.dev`), зарегистрируйтесь или войдите (по Email или через Google).
+3. Во вкладке **`🗂 Пространства`** создавайте, переименовывайте и переключайте свои 3D-пространства.
+4. Закройте приложение и дайте задачу ИИ-агенту — агент продолжит моделировать в облачном пространстве.
+5. Когда вы снова откроете XL3D, приложение автоматически восстановит токен, загрузит обновлённую агентом 3D-сцену и покажет историю всех действий во вкладке **`🤖 Агент`**.
+
+---
+
+## Шаг 4. Подключение ИИ-агентов (с авторизацией)
+
+Во вкладке **`🔌 AI / MCP`** или **`👤 Аккаунт`** скопируйте готовый **MCP URL** или **Personal MCP Token** (`xl3d_mcp_...`).
+
+### Claude (Веб / Custom Connector) и Cursor
+```text
+https://<ваш-worker>.workers.dev/mcp?token=xl3d_mcp_ВАШ_ТОКЕН
+```
+*(Можно добавить `&room=ws_...` для привязки к конкретному пространству, либо не указывать `room` — тогда агент будет работать в вашем активном пространстве и сможет переключаться через инструменты `list_workspaces` / `select_workspace` / `create_workspace`.)*
+
+### Claude Code (CLI)
 ```bash
-claude mcp add --transport http xl3d "https://xl3d-mcp.<ваш-subdomain>.workers.dev/mcp?room=xl3d-xxxx&token=YOUR_TOKEN"
+claude mcp add --transport http xl3d "https://<ваш-worker>.workers.dev/mcp?token=xl3d_mcp_ВАШ_ТОКЕН"
 ```
 
-### C. Claude Desktop (`claude_desktop_config.json`, локально через `stdio`)
-Можно подключиться к вашему облачному воркеру (чтобы управлять телефоном с ПК) или работать полностью локально:
+### Claude Desktop (`stdio.js`)
 ```json
 {
   "mcpServers": {
@@ -57,35 +81,14 @@ claude mcp add --transport http xl3d "https://xl3d-mcp.<ваш-subdomain>.worker
       "command": "node",
       "args": ["/ПОЛНЫЙ_ПУТЬ/Xlone-room/apps/xl3d-mcp/dist/stdio.js"],
       "env": {
-        "XL3D_MCP_URL": "https://xl3d-mcp.<ваш-subdomain>.workers.dev",
-        "XL3D_ROOM": "xl3d-xxxx",
-        "XL3D_TOKEN": "YOUR_TOKEN"
+        "XL3D_MCP_URL": "https://<ваш-worker>.workers.dev",
+        "XL3D_API_TOKEN": "xl3d_mcp_ВАШ_ТОКЕН"
       }
     }
   }
 }
 ```
-*(Если удалить блок `env`, сервер запустится полностью локально без интернета с полным Python `bpy`/`bmesh` движком.)*
 
-### D. ChatGPT (Custom GPT Actions)
-1. Создайте Custom GPT → **Configure → Actions → Create new action**.
-2. Нажмите **Import from URL** и вставьте:
-   ```
-   https://xl3d-mcp.<ваш-subdomain>.workers.dev/openapi.json?room=xl3d-xxxx
-   ```
-3. В разделе **Authentication** выберите **API Key → Auth Type: Bearer** и вставьте ваш `YOUR_TOKEN`.
-
----
-
-## Доступные инструменты ИИ-агента (11 Tools)
-- `get_scene_info` — структура сцены, объекты, вершины/грани, материалы и модификаторы
-- `run_blender_script` — запуск кода на Python (`bpy`, `bmesh`, `from_pydata`, `math`) или JavaScript
-- `create_object` — создание примитивов (`cube`, `sphere`, `cone`, `torus`, `monkey`, `light`, `camera`...)
-- `create_mesh_from_pydata` — создание произвольных мешей из массивов координат вершин и граней
-- `transform_object` — перемещение, поворот, масштабирование
-- `apply_edit_op` — `subdivide`, `extrude`, `inset`, `bevel`, `poke`, `looptools_circle`, `uv_unwrap`, `shade_smooth`
-- `add_modifier` — `subsurf`, `mirror`, `solidify`, `bevel`, `array`, `boolean`, `decimate`, `wireframe`
-- `set_material` — настройка PBR-материала (цвет, металличность, шероховатость, стекло/дисперсия, процедурные текстуры)
-- `get_viewport_screenshot` — живой PNG-скриншот 3D-вьюпорта с подключённого устройства
-- `undo` — отмена последнего действия
-- `export_scene` — экспорт сцены в `.obj`, `.stl`, `.ply` или `.xl3d`
+### ChatGPT (Custom GPT Actions)
+1. **Import from URL**: `https://<ваш-worker>.workers.dev/openapi.json`
+2. **Authentication → API Key → Auth Type: Bearer**: вставьте `xl3d_mcp_ВАШ_ТОКЕН`.

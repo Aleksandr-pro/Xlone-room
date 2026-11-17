@@ -3,6 +3,7 @@ package com.xloneroom.xl3d
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -24,6 +25,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -34,11 +36,15 @@ class MainActivity : Activity() {
     private lateinit var rootContainer: FrameLayout
     private lateinit var webView: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingAuthCallbackUrl: String? = null
+    private var pageLoaded = false
 
     companion object {
         private const val HOST = "xl3d.local"
         private const val BASE_URL = "https://$HOST/index.html"
         private const val FILE_CHOOSER_REQUEST_CODE = 1001
+        private const val PREFS_NAME = "xl3d_persistent_prefs"
+        private const val KEY_AUTH_JSON = "auth_json_v2"
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -68,6 +74,8 @@ class MainActivity : Activity() {
             insets
         }
 
+        handleDeepLinkIntent(intent)
+
         webView = createConfiguredWebView()
         rootContainer.addView(
             webView,
@@ -79,6 +87,33 @@ class MainActivity : Activity() {
         setContentView(rootContainer)
         rootContainer.requestApplyInsets()
         webView.loadUrl(BASE_URL)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLinkIntent(intent)
+    }
+
+    private fun handleDeepLinkIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "xl3d" && data.host == "auth") {
+            val fullUrl = data.toString()
+            pendingAuthCallbackUrl = fullUrl
+            if (pageLoaded) {
+                dispatchAuthCallbackToWebView(fullUrl)
+            }
+        }
+    }
+
+    private fun dispatchAuthCallbackToWebView(callbackUrl: String) {
+        val escaped = JSONObject.quote(callbackUrl)
+        runOnUiThread {
+            webView.evaluateJavascript(
+                "window.__xl3dHandleAuthCallback && window.__xl3dHandleAuthCallback($escaped);",
+                null
+            )
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -100,6 +135,16 @@ class MainActivity : Activity() {
         wv.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
 
         wv.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                pageLoaded = true
+                val pending = pendingAuthCallbackUrl
+                if (pending != null) {
+                    pendingAuthCallbackUrl = null
+                    dispatchAuthCallbackToWebView(pending)
+                }
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -134,7 +179,7 @@ class MainActivity : Activity() {
                 view: WebView?,
                 detail: RenderProcessGoneDetail?
             ): Boolean {
-                // Recover gracefully if WebView renderer dies instead of leaving a white sad-tab screen
+                pageLoaded = false
                 rootContainer.removeView(webView)
                 webView.destroy()
                 webView = createConfiguredWebView()
@@ -276,6 +321,41 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun openExternalUrl(url: String) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Не удалось открыть браузер: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun savePersistentAuth(json: String) {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(KEY_AUTH_JSON, json).commit()
+        }
+
+        @JavascriptInterface
+        fun loadPersistentAuth(): String {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            return prefs.getString(KEY_AUTH_JSON, "") ?: ""
+        }
+
+        @JavascriptInterface
+        fun clearPersistentAuth() {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().remove(KEY_AUTH_JSON).commit()
+        }
+
+        @JavascriptInterface
         fun showToast(message: String) {
             runOnUiThread {
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
@@ -283,6 +363,6 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
-        fun getAppVersion(): String = "1.2.0"
+        fun getAppVersion(): String = "1.5.0"
     }
 }

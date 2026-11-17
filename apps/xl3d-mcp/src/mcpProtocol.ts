@@ -12,6 +12,51 @@ export interface McpToolDef {
 
 export const XL3D_MCP_TOOLS: McpToolDef[] = [
   {
+    name: 'list_workspaces',
+    description:
+      'List all 3D workspaces in the authenticated user library (id, name, objectCount, revision, lastAgentTool, updatedAt, activeWorkspaceId).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'select_workspace',
+    description:
+      'Switch the authenticated user active workspace by workspace id or name. Subsequent calls without explicit ?room= target this workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace: { type: 'string', description: 'Workspace ID (ws_...) or exact name' },
+      },
+      required: ['workspace'],
+    },
+  },
+  {
+    name: 'create_workspace',
+    description:
+      'Create a new empty/starter 3D workspace in the authenticated user library and set it active.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Workspace name (e.g. Sci-Fi Helmet)' },
+        description: { type: 'string', description: 'Optional description' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'get_agent_history',
+    description:
+      'Get recent AI agent tool execution logs for the current workspace so you or the user can review past actions and revisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', description: 'Max log entries (default 20)' },
+      },
+    },
+  },
+  {
     name: 'get_scene_info',
     description:
       'Get current XL3D scene summary: all 3D objects, active object, vertex/face counts, modifiers, materials, and whether a live XL3D mobile/browser viewport is connected.',

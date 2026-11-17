@@ -80,10 +80,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="xl3d-v1.4.${{ github.run_number }}"
+          TAG="xl3d-v1.5.${{ github.run_number }}"
           SIZE_H=$(du -sh XL3D.apk | cut -f1)
           gh release create "$TAG" XL3D.apk \
             --target "${{ github.sha }}" \
-            --title "XL3D v1.4.${{ github.run_number }} (Blender 5.x Pro Modeling + Gizmos + Modifiers + AI MCP)" \
-            --notes "Нативный Android APK XL3D (${SIZE_H}) — v1.4.0: настоящие 3D-осевые гизмо X/Y/Z с привязкой Snap, вид из активной камеры (Cam) и Wireframe-кнопка, Catmull-Clark Subsurf / реальный Wireframe / Screw / Weld / Decimate / Boolean модификаторы + запекание Apply Modifier, Edit Mode (Bridge/Fill, Dissolve, Duplicate, Separate, Grow/Shrink Selection), Object Mode (Apply Transforms, Origin to Geometry, Join, Convert Curve/3D Text to Mesh), многосветовой PBR-рендер с бликами и AI/MCP Bridge." \
+            --title "XL3D v1.5.${{ github.run_number }} (Cloud Auth + Google OAuth + Workspaces Library + Authenticated MCP)" \
+            --notes "Нативный Android APK XL3D (${SIZE_H}) — v1.5.0: регистрация по Email и Google OAuth прямо на Cloudflare Workers (SQLite Durable Objects), долгоживущие токены (не слетают после закрытия приложения), библиотека личных 3D рабочих пространств, просмотр результатов работы ИИ-агента в любую секунду и авторизованный MCP/OpenAPI сервер." \
             --latest
