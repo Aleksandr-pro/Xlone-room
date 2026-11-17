@@ -40,4 +40,23 @@ describe('StudioStore operations & undo/redo', () => {
     store.toggleSelectedPropKeyframe();
     expect(sel.transform.x.keyframes.some((k) => Math.abs(k.time - 1.1) < 0.01)).toBe(true);
   });
+
+  it('supports livePreviewOnly updates without rebuilding panel DOM during slider drags', () => {
+    store.loadProject(createNeonIntroProject());
+    const sel = store.getSelectedLayer()!;
+    let panelRenders = 0;
+    let viewportDraws = 0;
+    const unsub1 = store.subscribe(() => panelRenders++);
+    const unsub2 = store.subscribeTime(() => viewportDraws++);
+
+    store.setTransformValue(sel.id, 'x', 777, { skipUndo: true, livePreviewOnly: true });
+    expect(panelRenders).toBe(0);
+    expect(viewportDraws).toBe(1);
+
+    store.commitLiveChange();
+    expect(panelRenders).toBe(1);
+
+    unsub1();
+    unsub2();
+  });
 });

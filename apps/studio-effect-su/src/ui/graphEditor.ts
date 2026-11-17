@@ -3,7 +3,10 @@ import type { BezierHandles, EasingType, TransformPropKey } from '../core/types'
 import { store } from '../state/store';
 
 export function mountGraphEditor(container: HTMLElement): void {
+  let isDraggingBezier = false;
+
   function render(): void {
+    if (isDraggingBezier) return;
     const state = store.getState();
     const tr = store.t();
     const layer = store.getSelectedLayer();
@@ -114,14 +117,18 @@ export function mountGraphEditor(container: HTMLElement): void {
       const p1 = toCanvas(handles.x1, handles.y1);
       const p2 = toCanvas(handles.x2, handles.y2);
 
-      if (Math.hypot(cx - p1.x, cy - p1.y) < 22) activeHandle = 1;
-      else if (Math.hypot(cx - p2.x, cy - p2.y) < 22) activeHandle = 2;
+      if (Math.hypot(cx - p1.x, cy - p1.y) < 28) activeHandle = 1;
+      else if (Math.hypot(cx - p2.x, cy - p2.y) < 28) activeHandle = 2;
 
       if (activeHandle) {
+        isDraggingBezier = true;
         canvas.setPointerCapture(e.pointerId);
         snapped = false;
       }
     });
+
+    const readoutEl = container.querySelector<HTMLElement>('.graph-readout');
+    let curHandles: BezierHandles = { ...handles };
 
     canvas.addEventListener('pointermove', (e) => {
       if (!activeHandle) return;
@@ -135,19 +142,23 @@ export function mountGraphEditor(container: HTMLElement): void {
         snapped = true;
       }
 
-      const nextHandles: BezierHandles = { ...handles };
       if (activeHandle === 1) {
-        nextHandles.x1 = Number(nx.toFixed(2));
-        nextHandles.y1 = Number(ny.toFixed(2));
+        curHandles = { ...curHandles, x1: Number(nx.toFixed(2)), y1: Number(ny.toFixed(2)) };
       } else {
-        nextHandles.x2 = Number(nx.toFixed(2));
-        nextHandles.y2 = Number(ny.toFixed(2));
+        curHandles = { ...curHandles, x2: Number(nx.toFixed(2)), y2: Number(ny.toFixed(2)) };
       }
-      store.updateKeyframeEasing(layer.id, propKey, selectedKf.id, 'bezier', nextHandles, true);
+      drawCurve(canvas, curHandles, 'bezier');
+      if (readoutEl) {
+        readoutEl.innerHTML = `<span>${tr.easingLabel}: <b>bezier</b></span><span>Bezier(${curHandles.x1.toFixed(2)}, ${curHandles.y1.toFixed(2)}, ${curHandles.x2.toFixed(2)}, ${curHandles.y2.toFixed(2)})</span>`;
+      }
+      store.updateKeyframeEasing(layer.id, propKey, selectedKf.id, 'bezier', { ...curHandles }, true, true);
     });
 
     const stopDrag = () => {
+      if (!activeHandle) return;
       activeHandle = null;
+      isDraggingBezier = false;
+      store.commitLiveChange();
     };
     canvas.addEventListener('pointerup', stopDrag);
     canvas.addEventListener('pointercancel', stopDrag);

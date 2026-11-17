@@ -6,7 +6,10 @@ import { store } from '../state/store';
 import { ICONS } from './icons';
 
 export function mountEffectsPanel(container: HTMLElement): void {
+  let isDraggingSlider = false;
+
   function render(): void {
+    if (isDraggingSlider) return;
     const state = store.getState();
     const tr = store.t();
     const isRu = state.locale === 'ru';
@@ -131,17 +134,34 @@ export function mountEffectsPanel(container: HTMLElement): void {
 
     container.querySelectorAll<HTMLInputElement>('[data-fx-range]').forEach((rng) => {
       const [fxId, paramKey] = rng.dataset.fxRange!.split(':');
+      const def = getEffectDef(
+        store.getSelectedLayer()?.effects.find((fx) => fx.id === fxId)?.type ?? 'glow'
+      );
+      const unit = def.params.find((p) => p.key === paramKey)?.unit ?? '';
+      const valEl = rng.previousElementSibling?.querySelector<HTMLElement>('.fx-val');
       let snapped = false;
       rng.addEventListener('pointerdown', () => {
+        isDraggingSlider = true;
         snapped = false;
       });
       rng.addEventListener('input', () => {
+        isDraggingSlider = true;
         if (!snapped) {
           store.snapshotForUndo();
           snapped = true;
         }
-        store.setEffectParam(layerId, fxId, paramKey, Number(rng.value), true);
+        const v = Number(rng.value);
+        if (valEl) valEl.textContent = `${v}${unit}`;
+        store.setEffectParam(layerId, fxId, paramKey, v, true, true);
       });
+      const finishDrag = () => {
+        if (!isDraggingSlider) return;
+        isDraggingSlider = false;
+        store.commitLiveChange();
+      };
+      rng.addEventListener('change', finishDrag);
+      rng.addEventListener('pointerup', finishDrag);
+      rng.addEventListener('pointercancel', finishDrag);
     });
   }
 
