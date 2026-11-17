@@ -20,6 +20,7 @@ export function getAudioAmplitudeAtTime(comp: Composition, time: number): number
 }
 
 export function syncAudioPlayback(comp: Composition, currentTime: number, isPlaying: boolean): void {
+  if (typeof Audio === 'undefined') return;
   const activeIds = new Set<string>();
 
   for (const layer of comp.layers) {

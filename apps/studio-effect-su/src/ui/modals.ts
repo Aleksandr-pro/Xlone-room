@@ -366,6 +366,35 @@ export class ModalManager {
     );
   }
 
+  openXloneHub(): void {
+    this.open(
+      'Xlone-room • StudioEffect(SU) v1.2',
+      `
+      <div class="export-info">
+        <div><b>Xlone-room Project</b></div>
+        <small>Сверхлёгкие нативные Android-клоны (APK) тяжёлых программ для Windows.</small>
+      </div>
+      <div class="preset-list mt-10">
+        <div class="preset-card">
+          <strong>StudioEffect(SU) v1.2.0 — Клон Adobe After Effects</strong>
+          <small>Вес APK: ~70 KB (против ~4.5 GB оригинала — в 65,000+ раз легче!)</small>
+          <small>3D слои (X/Y/Z) • Audio/Beat Sync • Маски и Track Matte • Pre-Compose • 20 VFX • AE Expressions</small>
+        </div>
+        <div class="preset-card">
+          <strong>Горячие действия на телефоне</strong>
+          <small>• Тап по <b>3D</b> на слое — включает Rotate X / Rotate Y / Z Depth</small>
+          <small>• <b>Split</b> на таймлайне — разрезает слой по текущему бегунку</small>
+          <small>• <b>+ M</b> — добавляет маркер бита (двойной тап удаляет)</small>
+        </div>
+      </div>
+      <div class="btn-row mt-12">
+        <a class="btn-primary" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk" target="_blank" rel="noopener">Скачать свежий APK</a>
+        <a class="btn-ghost" style="text-decoration:none" href="https://github.com/Aleksandr-pro/Xlone-room" target="_blank" rel="noopener">GitHub Xlone-room</a>
+      </div>
+      `
+    );
+  }
+
   openExport(): void {
     const comp = store.getActiveComp();
     const allComps = store.getState().project.compositions;

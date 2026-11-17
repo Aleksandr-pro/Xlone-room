@@ -14,7 +14,7 @@ export function mountGraphEditor(container: HTMLElement): void {
 
     const propKey: TransformPropKey = state.selectedKeyframe?.propKey ?? state.selectedPropKey;
     const prop = layer.transform[propKey];
-    const kfs = [...prop.keyframes].sort((a, b) => a.time - b.time);
+    const kfs = [...(prop?.keyframes ?? [])].sort((a, b) => a.time - b.time);
 
     if (kfs.length === 0) {
       container.innerHTML = `

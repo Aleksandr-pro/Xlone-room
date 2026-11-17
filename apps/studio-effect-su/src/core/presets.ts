@@ -1,3 +1,4 @@
+import { createBuiltInSynthBeat } from './audio';
 import { createComposition, createEffect, createLayer, kf, prop, uid } from './factories';
 import type { StudioProject } from './types';
 
@@ -258,12 +259,101 @@ export function createKineticWideProject(): StudioProject {
   };
 }
 
+export function create3DBeatCardProject(): StudioProject {
+  const comp = createComposition('3D Card & Beat (9:16)', 1080, 1920, 30, 4);
+
+  const bg = createLayer('solid', comp, 'Cyber Midnight BG');
+  bg.solidData = {
+    width: 1080,
+    height: 1920,
+    color: '#060814',
+    gradientColor: '#1e1b4b',
+    useGradient: true,
+    gradientAngle: 155,
+  };
+
+  const kaleidoRing = createLayer('shape', comp, 'Beat Kaleido Frame');
+  kaleidoRing.transform.rotation = prop(0, [], 'time * 24');
+  kaleidoRing.transform.scaleX = prop(100, [], '100 + audioAmp * 0.55');
+  kaleidoRing.transform.scaleY = prop(100, [], '100 + audioAmp * 0.55');
+  kaleidoRing.shapeData = {
+    kind: 'star',
+    width: 680,
+    height: 680,
+    cornerRadius: 0,
+    points: 6,
+    fillColor: '#6366f1',
+    fillOpacity: 16,
+    strokeColor: '#22d3ee',
+    strokeWidth: 10,
+  };
+  kaleidoRing.effects.push(createEffect('glow'), createEffect('mirror'));
+
+  const card = createLayer('shape', comp, '3D Flip Card');
+  card.is3D = true;
+  card.transform.z = prop(0, [kf(0, 260, 'easyEase'), kf(1.0, 0, 'easyEase'), kf(3.2, -120, 'easyEase')]);
+  card.transform.rotateY = prop(0, [kf(0.2, 0, 'easyEase'), kf(1.4, 360, 'easyEase'), kf(2.8, 720, 'easyEase')]);
+  card.transform.rotateX = prop(0, [], 'Math.sin(time * 2.5) * 18');
+  card.shapeData = {
+    kind: 'roundedRect',
+    width: 640,
+    height: 400,
+    cornerRadius: 42,
+    points: 4,
+    fillColor: '#312e81',
+    fillOpacity: 85,
+    strokeColor: '#38bdf8',
+    strokeWidth: 12,
+  };
+  card.effects.push(createEffect('dropShadow'), createEffect('glow'));
+
+  const cardTitle = createLayer('text', comp, '3D Beat Title');
+  cardTitle.is3D = true;
+  cardTitle.parentId = card.id;
+  cardTitle.transform.x = prop(0);
+  cardTitle.transform.y = prop(0);
+  cardTitle.transform.scaleX = prop(100, [], '100 + audioAmp * 0.25');
+  cardTitle.transform.scaleY = prop(100, [], '100 + audioAmp * 0.25');
+  cardTitle.textData = {
+    text: 'STUDIO\nEFFECT 3D',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: 82,
+    fontWeight: '900',
+    color: '#ffffff',
+    strokeColor: '#22d3ee',
+    strokeWidth: 3,
+    align: 'center',
+    letterSpacing: 4,
+    lineHeight: 1.08,
+    revealProgress: 100,
+  };
+
+  const audio = createLayer('audio', comp, 'Synth Beat 128 BPM');
+  audio.audioData = createBuiltInSynthBeat(4, 128);
+
+  comp.layers = [cardTitle, card, kaleidoRing, bg, audio];
+
+  return {
+    version: '1.2.0',
+    app: 'StudioEffect(SU)',
+    name: '3D Card & Beat Edit',
+    activeCompId: comp.id,
+    compositions: [comp],
+  };
+}
+
 export const DEMO_PRESETS: Array<{ id: string; title: string; subtitle: string; create: () => StudioProject }> = [
   {
     id: 'neon-intro',
     title: 'Neon Intro (9:16)',
     subtitle: 'Parenting Rig • Expressions • Deep Glow • Adjustment RGB',
     create: createNeonIntroProject,
+  },
+  {
+    id: '3d-beat-card',
+    title: '3D Card & Beat (9:16)',
+    subtitle: '3D Rotate X/Y/Z • 128 BPM Audio • audioAmp • Kaleido Mirror',
+    create: create3DBeatCardProject,
   },
   {
     id: 'amv-pulse',

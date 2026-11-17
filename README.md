@@ -10,7 +10,7 @@
 
 | Приложение | Клон чего | Размер оригинала (Windows) | Размер клона (Android APK) | Статус | Скачать APK |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.1) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk) |
+| **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.2) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk) |
 
 ---
 
@@ -18,7 +18,7 @@
 
 **StudioEffect(SU)** — нативное Android-приложение (`.apk`) для моушн-дизайна, кейфрейм-анимации, композитинга и визуальных эффектов в стиле Adobe After Effects.
 
-### Ключевые возможности (v1.1):
+### Ключевые возможности (v1.2):
 - **Нативная интеграция с Android**:
   - Выбор фото, видео, музыки и `.suep`-проектов прямо из галереи и проводника телефона.
   - Прямое сохранение отрендеренных видео (`WebM/MP4`), кадров (`PNG`) и проектов (`SUEP`) в папку **Загрузки (`Downloads/StudioEffectSU`)** с нативными уведомлениями.
@@ -35,7 +35,8 @@
 - **Иерархия, Магнитный Snap и Viewport Zoom**: `Parent & Link`, магнитная привязка к центру, зум вьюпорта.
 - **Таймлайн и Keyframes**: `Anchor Point`, `Position`, `Scale`, `Rotation`, `Opacity`, `Linear / Easy Ease / Ease In / Ease Out / Hold` + **Graph Editor**.
 - **Режимы наложения (Blending Modes)**: `Normal`, `Add`, `Screen`, `Multiply`, `Overlay`, `Difference`, `Lighten`, `Darken`.
-- **16 эффектов (VFX)**: `Deep Glow`, `Gaussian Blur`, `Radial Zoom Blur`, `Directional Blur`, `Wave Warp`, `RGB Split`, `Glitch / Scanlines`, `Motion Tile`, `Camera Shake`, `Drop Shadow`, `Hue / Saturation`, `Brightness / Contrast`, `Tint / Colorize`, `Exposure & Gamma`, `Vignette`, `Pixelate` с изменением порядка стека.
+- **20 эффектов (VFX)**: `Deep Glow`, `Gaussian Blur`, `Radial Zoom Blur`, `Directional Blur`, `Wave Warp`, `RGB Split`, `Glitch / Scanlines`, `Motion Tile`, `Camera Shake`, `Drop Shadow`, `Hue / Saturation`, `Brightness / Contrast`, `Tint / Colorize`, `Exposure & Gamma`, `Color Key (Green Screen)`, `Symmetry / Kaleido`, `Posterize`, `Halftone Dots`, `Vignette`, `Pixelate` с изменением порядка стека.
+- **3D-слои и монтаж**: переключатель `3D` (`Rotate X / Rotate Y / Z Depth` с перспективой), разрезание слоёв `Split` по бегунку, маркеры таймлайна (`+ M`), `Time Speed` (0.25x–4x) и сведение аудиодорожек при рендере видео.
 - **AE Expressions (выражения)**: поддержка `time`, `index`, `audioAmp`, `wiggle(freq, amp)`, `loopOut()`, `random()`, `Math.*`.
 
 ---

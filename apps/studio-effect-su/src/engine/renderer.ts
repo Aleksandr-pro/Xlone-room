@@ -169,7 +169,8 @@ function drawMedia(ctx: CanvasRenderingContext2D, layer: Layer, time: number): v
     ctx.drawImage(el, -w / 2, -h / 2, w, h);
   } else if (el instanceof HTMLVideoElement) {
     if (el.readyState < 2) return;
-    const targetTime = Math.max(0, time - layer.inPoint + layer.startTime);
+    const spd = layer.speed ?? 1;
+    const targetTime = Math.max(0, (time - layer.inPoint) * spd + layer.startTime);
     if (Math.abs(el.currentTime - targetTime) > 0.08 && !el.seeking) {
       el.currentTime = Math.min(targetTime, el.duration || targetTime);
     }
@@ -233,7 +234,8 @@ function drawLayerContent(
       const subCtx = subCanvas.getContext('2d')!;
       const nextVisited = new Set(visitedComps);
       nextVisited.add(sub.id);
-      const subTime = Math.max(0, time - layer.inPoint + layer.startTime);
+      const spd = layer.speed ?? 1;
+      const subTime = Math.max(0, (time - layer.inPoint) * spd + layer.startTime);
       renderCompositionInternal(subCtx, sub, subTime, {
         renderScale: scale,
         transparentBg: true,

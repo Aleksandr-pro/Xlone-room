@@ -84,21 +84,32 @@ export function evaluateLayerTransform(
 ): EvaluatedTransform {
   const t = layer.transform;
   const id = layer.id;
+  const zero = { value: 0, keyframes: [] };
   return {
     anchorX: evaluateProp(t.anchorX, time, layerIndex, comp, `${id}:anchorX`),
     anchorY: evaluateProp(t.anchorY, time, layerIndex, comp, `${id}:anchorY`),
     x: evaluateProp(t.x, time, layerIndex, comp, `${id}:x`),
     y: evaluateProp(t.y, time, layerIndex, comp, `${id}:y`),
+    z: evaluateProp(t.z ?? zero, time, layerIndex, comp, `${id}:z`),
     scaleX: evaluateProp(t.scaleX, time, layerIndex, comp, `${id}:scaleX`),
     scaleY: evaluateProp(t.scaleY, time, layerIndex, comp, `${id}:scaleY`),
     rotation: evaluateProp(t.rotation, time, layerIndex, comp, `${id}:rotation`),
+    rotateX: evaluateProp(t.rotateX ?? zero, time, layerIndex, comp, `${id}:rotateX`),
+    rotateY: evaluateProp(t.rotateY ?? zero, time, layerIndex, comp, `${id}:rotateY`),
     opacity: Math.max(0, Math.min(100, evaluateProp(t.opacity, time, layerIndex, comp, `${id}:opacity`))),
   };
 }
 
-export function localTransformToMatrix(tf: EvaluatedTransform): WorldMatrix {
-  const sx = tf.scaleX / 100;
-  const sy = tf.scaleY / 100;
+export function localTransformToMatrix(tf: EvaluatedTransform, is3D = false): WorldMatrix {
+  let sx = tf.scaleX / 100;
+  let sy = tf.scaleY / 100;
+  if (is3D) {
+    const persp = 1000 / Math.max(120, 1000 + tf.z);
+    const rx = (tf.rotateX * Math.PI) / 180;
+    const ry = (tf.rotateY * Math.PI) / 180;
+    sx *= Math.cos(ry) * persp;
+    sy *= Math.cos(rx) * persp;
+  }
   const rad = (tf.rotation * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
@@ -163,7 +174,7 @@ export function getLayerWorldMatrix(
 ): WorldMatrix {
   const layerIndex = comp.layers.findIndex((l) => l.id === layer.id);
   const localTf = evaluateLayerTransform(layer, Math.max(0, layerIndex), comp, time);
-  const localMat = localTransformToMatrix(localTf);
+  const localMat = localTransformToMatrix(localTf, Boolean(layer.is3D));
 
   if (!layer.parentId || visited.has(layer.id)) {
     return localMat;

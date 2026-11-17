@@ -26,9 +26,12 @@ export type TransformPropKey =
   | 'anchorY'
   | 'x'
   | 'y'
+  | 'z'
   | 'scaleX'
   | 'scaleY'
   | 'rotation'
+  | 'rotateX'
+  | 'rotateY'
   | 'opacity';
 
 export interface TransformProps {
@@ -36,9 +39,12 @@ export interface TransformProps {
   anchorY: AnimatableProp;
   x: AnimatableProp;
   y: AnimatableProp;
+  z?: AnimatableProp;
   scaleX: AnimatableProp;
   scaleY: AnimatableProp;
   rotation: AnimatableProp;
+  rotateX?: AnimatableProp;
+  rotateY?: AnimatableProp;
   opacity: AnimatableProp;
 }
 
@@ -57,6 +63,10 @@ export type EffectType =
   | 'contrast'
   | 'tint'
   | 'exposure'
+  | 'chromaKey'
+  | 'mirror'
+  | 'posterize'
+  | 'halftone'
   | 'vignette'
   | 'pixelate';
 
@@ -187,6 +197,8 @@ export interface Layer {
   solo: boolean;
   locked: boolean;
   expanded: boolean;
+  is3D?: boolean;
+  speed?: number;
   inPoint: number; // seconds
   outPoint: number; // seconds
   startTime: number; // offset for media/precomp/audio
@@ -205,6 +217,13 @@ export interface Layer {
   precompData?: PrecompLayerData;
 }
 
+export interface TimelineMarker {
+  id: string;
+  time: number;
+  label: string;
+  color: string;
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -213,6 +232,7 @@ export interface Composition {
   fps: number;
   duration: number; // seconds
   backgroundColor: string;
+  markers?: TimelineMarker[];
   layers: Layer[];
 }
 
@@ -229,9 +249,12 @@ export interface EvaluatedTransform {
   anchorY: number;
   x: number;
   y: number;
+  z: number;
   scaleX: number; // percentage (100 = 1.0)
   scaleY: number;
   rotation: number; // degrees
+  rotateX: number; // degrees
+  rotateY: number; // degrees
   opacity: number; // 0..100
 }
 

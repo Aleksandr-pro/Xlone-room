@@ -354,6 +354,129 @@ export function applyEffectStack(
         break;
       }
 
+      case 'chromaKey': {
+        const keyHue = pVal(fx, 'hue', 120, time, layerIndex, comp) * (Math.PI / 180);
+        const keyR = Math.round(127.5 + 127.5 * Math.cos(keyHue));
+        const keyG = Math.round(127.5 + 127.5 * Math.cos(keyHue - (2 * Math.PI) / 3));
+        const keyB = Math.round(127.5 + 127.5 * Math.cos(keyHue + (2 * Math.PI) / 3));
+        const tol = Math.max(1, pVal(fx, 'tolerance', 45, time, layerIndex, comp)) * 2.5;
+        const soft = Math.max(1, pVal(fx, 'softness', 18, time, layerIndex, comp)) * 2.5;
+
+        const cctx = current.getContext('2d');
+        if (!cctx) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const src = cctx.getImageData(0, 0, w, h);
+        const dst = octx.createImageData(w, h);
+        const s = src.data;
+        const d = dst.data;
+        for (let i = 0; i < s.length; i += 4) {
+          const a = s[i + 3];
+          if (a === 0) continue;
+          const dist = Math.hypot(s[i] - keyR, s[i + 1] - keyG, s[i + 2] - keyB);
+          let alphaFactor = 1;
+          if (dist < tol) alphaFactor = 0;
+          else if (dist < tol + soft) alphaFactor = (dist - tol) / soft;
+          d[i] = s[i];
+          d[i + 1] = s[i + 1];
+          d[i + 2] = s[i + 2];
+          d[i + 3] = Math.round(a * alphaFactor);
+        }
+        octx.putImageData(dst, 0, 0);
+        break;
+      }
+
+      case 'mirror': {
+        const mode = Math.round(pVal(fx, 'mode', 3, time, layerIndex, comp));
+        const hw = w / 2;
+        const hh = h / 2;
+        if (mode === 1) {
+          octx.drawImage(current, 0, 0, hw, h, 0, 0, hw, h);
+          octx.save();
+          octx.translate(w, 0);
+          octx.scale(-1, 1);
+          octx.drawImage(current, 0, 0, hw, h, 0, 0, hw, h);
+          octx.restore();
+        } else if (mode === 2) {
+          octx.drawImage(current, 0, 0, w, hh, 0, 0, w, hh);
+          octx.save();
+          octx.translate(0, h);
+          octx.scale(1, -1);
+          octx.drawImage(current, 0, 0, w, hh, 0, 0, w, hh);
+          octx.restore();
+        } else {
+          octx.drawImage(current, 0, 0, hw, hh, 0, 0, hw, hh);
+          octx.save();
+          octx.translate(w, 0);
+          octx.scale(-1, 1);
+          octx.drawImage(current, 0, 0, hw, hh, 0, 0, hw, hh);
+          octx.restore();
+          octx.save();
+          octx.translate(0, h);
+          octx.scale(1, -1);
+          octx.drawImage(current, 0, 0, hw, hh, 0, 0, hw, hh);
+          octx.restore();
+          octx.save();
+          octx.translate(w, h);
+          octx.scale(-1, -1);
+          octx.drawImage(current, 0, 0, hw, hh, 0, 0, hw, hh);
+          octx.restore();
+        }
+        break;
+      }
+
+      case 'posterize': {
+        const levels = Math.max(2, Math.min(16, Math.round(pVal(fx, 'levels', 5, time, layerIndex, comp))));
+        const step = 255 / (levels - 1);
+        const cctx = current.getContext('2d');
+        if (!cctx) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const src = cctx.getImageData(0, 0, w, h);
+        const dst = octx.createImageData(w, h);
+        const s = src.data;
+        const d = dst.data;
+        for (let i = 0; i < s.length; i += 4) {
+          d[i] = Math.round(Math.round(s[i] / step) * step);
+          d[i + 1] = Math.round(Math.round(s[i + 1] / step) * step);
+          d[i + 2] = Math.round(Math.round(s[i + 2] / step) * step);
+          d[i + 3] = s[i + 3];
+        }
+        octx.putImageData(dst, 0, 0);
+        break;
+      }
+
+      case 'halftone': {
+        const cell = Math.max(4, Math.round(pVal(fx, 'dotSize', 10, time, layerIndex, comp) * renderScale));
+        const cctx = current.getContext('2d');
+        if (!cctx) {
+          octx.drawImage(current, 0, 0);
+          break;
+        }
+        const src = cctx.getImageData(0, 0, w, h).data;
+        octx.fillStyle = '#09090d';
+        octx.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += cell) {
+          for (let x = 0; x < w; x += cell) {
+            const sx = Math.min(w - 1, x + Math.floor(cell / 2));
+            const sy = Math.min(h - 1, y + Math.floor(cell / 2));
+            const idx = (sy * w + sx) * 4;
+            const a = src[idx + 3];
+            if (a < 10) continue;
+            const lum = (0.299 * src[idx] + 0.587 * src[idx + 1] + 0.114 * src[idx + 2]) / 255;
+            const r = (cell * 0.52) * Math.sqrt(lum);
+            if (r < 0.5) continue;
+            octx.fillStyle = `rgba(${src[idx]},${src[idx + 1]},${src[idx + 2]},${(a / 255).toFixed(2)})`;
+            octx.beginPath();
+            octx.arc(x + cell / 2, y + cell / 2, r, 0, Math.PI * 2);
+            octx.fill();
+          }
+        }
+        break;
+      }
+
       default:
         octx.drawImage(current, 0, 0);
         break;

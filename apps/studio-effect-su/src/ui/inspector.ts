@@ -15,7 +15,7 @@ const BLEND_MODES: BlendMode[] = [
   'darken',
 ];
 
-const TRANSFORM_FIELDS: Array<{
+const BASE_TRANSFORM_FIELDS: Array<{
   key: TransformPropKey;
   label: string;
   min: number;
@@ -31,6 +31,12 @@ const TRANSFORM_FIELDS: Array<{
   { key: 'opacity', label: 'Opacity', min: 0, max: 100, step: 1, unit: '%' },
   { key: 'anchorX', label: 'Anchor X', min: -1000, max: 1000, step: 1, unit: 'px' },
   { key: 'anchorY', label: 'Anchor Y', min: -1000, max: 1000, step: 1, unit: 'px' },
+];
+
+const EXTRA_3D_FIELDS: typeof BASE_TRANSFORM_FIELDS = [
+  { key: 'z', label: 'Z Depth (3D)', min: -900, max: 1200, step: 5, unit: 'px' },
+  { key: 'rotateX', label: 'Rotate X (3D)', min: -360, max: 360, step: 1, unit: '°' },
+  { key: 'rotateY', label: 'Rotate Y (3D)', min: -720, max: 720, step: 1, unit: '°' },
 ];
 
 export function mountInspector(container: HTMLElement): void {
@@ -64,8 +70,12 @@ export function mountInspector(container: HTMLElement): void {
     const matteVal: TrackMatteMode = layer.trackMatte ?? 'none';
     const matteAboveName = layerIndex > 0 ? comp.layers[layerIndex - 1].name : 'Нет слоя выше';
 
-    const transformRows = TRANSFORM_FIELDS.map((f) => {
-      const prop = layer.transform[f.key];
+    const transformFields = layer.is3D
+      ? [...BASE_TRANSFORM_FIELDS, ...EXTRA_3D_FIELDS]
+      : BASE_TRANSFORM_FIELDS;
+
+    const transformRows = transformFields.map((f) => {
+      const prop = layer.transform[f.key] ?? { value: 0, keyframes: [] };
       const val =
         Math.round(
           evaluateProp(prop, state.currentTime, layerIndex, comp, `${layer.id}:${f.key}`) * 10
@@ -300,12 +310,13 @@ export function mountInspector(container: HTMLElement): void {
       `
         : '';
 
-    const exprCode = layer.transform[activeExprProp].expression ?? '';
+    const exprPropObj = layer.transform[activeExprProp] ?? { value: 0, keyframes: [] };
+    const exprCode = exprPropObj.expression ?? '';
     const exprCheck = exprCode.trim()
       ? evaluateExpression(exprCode, {
           time: state.currentTime,
           index: layerIndex + 1,
-          value: layer.transform[activeExprProp].value,
+          value: exprPropObj.value,
           fps: comp.fps,
           duration: comp.duration,
           seed: 1,
@@ -348,10 +359,21 @@ export function mountInspector(container: HTMLElement): void {
             <div>
               <label class="field-label">Layer Actions</label>
               <div class="btn-row">
+                <button class="btn-ghost btn-sm ${layer.is3D ? 'active' : ''}" data-toggle-3d-insp>3D: ${layer.is3D ? 'ON' : 'OFF'}</button>
+                <button class="btn-ghost btn-sm" data-split-layer>Split</button>
                 <button class="btn-ghost btn-sm" data-center-anchor>Center Anchor</button>
-                <button class="btn-ghost btn-sm" data-precomp-layer>Pre-Compose</button>
+                <button class="btn-ghost btn-sm" data-precomp-layer>Pre-Comp</button>
               </div>
             </div>
+            ${
+              layer.type === 'media' || layer.type === 'precomp'
+                ? `
+            <div>
+              <label class="field-label">Time Speed (0.25x - 4x)</label>
+              <input type="number" class="ae-input" data-layer-speed value="${layer.speed ?? 1}" min="0.25" max="4" step="0.25" />
+            </div>`
+                : ''
+            }
           </div>
         </div>
 
@@ -370,7 +392,7 @@ export function mountInspector(container: HTMLElement): void {
           <div class="insp-card-title">AE Expressions</div>
           <div class="expr-toolbar">
             <select class="ae-select" data-expr-prop>
-              ${TRANSFORM_FIELDS.map(
+              ${transformFields.map(
                 (f) => `<option value="${f.key}" ${activeExprProp === f.key ? 'selected' : ''}>${f.label}</option>`
               ).join('')}
             </select>
@@ -408,6 +430,12 @@ export function mountInspector(container: HTMLElement): void {
     container.querySelector('[data-layer-del]')?.addEventListener('click', () => store.deleteLayer(layerId));
     container.querySelector('[data-center-anchor]')?.addEventListener('click', () => store.centerAnchorPoint(layerId));
     container.querySelector('[data-precomp-layer]')?.addEventListener('click', () => store.precomposeLayer(layerId));
+    container.querySelector('[data-toggle-3d-insp]')?.addEventListener('click', () => store.toggle3D(layerId));
+    container.querySelector('[data-split-layer]')?.addEventListener('click', () => store.splitLayerAtCurrentTime(layerId));
+    container.querySelector<HTMLInputElement>('[data-layer-speed]')?.addEventListener('change', (e) => {
+      const v = Math.max(0.25, Math.min(4, Number((e.target as HTMLInputElement).value) || 1));
+      store.updateLayer(layerId, (l) => (l.speed = v));
+    });
 
     container.querySelector<HTMLSelectElement>('[data-blend-select]')?.addEventListener('change', (e) => {
       const mode = (e.target as HTMLSelectElement).value as BlendMode;

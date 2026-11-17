@@ -660,6 +660,38 @@ svg {
   color: var(--gold);
 }
 
+.tl-flag-btn.d3 {
+  font-size: 9px;
+}
+
+.tl-flag-btn.d3.on {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.16);
+}
+
+.btn-ghost.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: #93c5fd;
+}
+
+.tl-marker {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  background: #0891b2;
+  color: #ffffff;
+  border: 1px solid #22d3ee;
+  border-radius: 3px 3px 0 0;
+  font-size: 8.5px;
+  font-weight: 800;
+  padding: 0 4px;
+  height: 14px;
+  line-height: 12px;
+  cursor: pointer;
+  z-index: 4;
+}
+
 .tl-fx-pill {
   font-size: 9px;
   font-weight: 800;
