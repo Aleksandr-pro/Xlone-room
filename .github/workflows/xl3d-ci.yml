@@ -1,0 +1,89 @@
+name: Build XL3D APK
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-xl3d-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies, test & build XL3D
+        run: |
+          npm ci
+          npm --workspace=apps/xl3d run typecheck
+          npm --workspace=apps/xl3d test
+          npm --workspace=apps/xl3d run build
+
+      - name: Prepare XL3D Android web assets
+        run: |
+          mkdir -p apps/xl3d/android/app/src/main/assets/public
+          cp -r apps/xl3d/dist/* apps/xl3d/android/app/src/main/assets/public/
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Generate signing keystore & build XL3D release APK
+        working-directory: apps/xl3d/android
+        env:
+          KEYSTORE_PATH: /tmp/xl3d-release.jks
+          KEYSTORE_PASS: xloneroom2026
+          KEY_ALIAS: xl3d
+          KEY_PASS: xloneroom2026
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASS" \
+            -alias "$KEY_ALIAS" \
+            -keypass "$KEY_PASS" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=XL3D, O=Xlone-room, C=KZ"
+          gradle assembleRelease --no-daemon
+
+      - name: Package & verify XL3D APK size
+        run: |
+          APK_SRC="apps/xl3d/android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK_SRC"
+          cp "$APK_SRC" XL3D.apk
+          ls -lh XL3D.apk
+          SIZE_KB=$(du -sk XL3D.apk | cut -f1)
+          echo "XL3D APK size: ${SIZE_KB} KB"
+
+      - name: Upload XL3D APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XL3D-apk
+          path: XL3D.apk
+
+      - name: Publish GitHub Release with direct XL3D APK link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="xl3d-v1.0.${{ github.run_number }}"
+          SIZE_H=$(du -sh XL3D.apk | cut -f1)
+          gh release create "$TAG" XL3D.apk \
+            --target "${{ github.sha }}" \
+            --title "XL3D v1.0.${{ github.run_number }} (Blender 5.x Mobile)" \
+            --notes "Нативный Android APK XL3D (${SIZE_H}) — ультра-лёгкий мобильный клон Blender 5.x (Modeling, Sculpt, Paint/Bake, Shader/Geometry/Compositor Nodes, Cycles/EEVEE/AgX, Animation/Rigify, Physics, Grease Pencil, VSE 5.3, OBJ/STL/PLY/GLB/SPZ)." \
+            --latest

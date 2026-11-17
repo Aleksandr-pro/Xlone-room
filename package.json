@@ -7,10 +7,15 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm --workspace=apps/studio-effect-su run dev",
-    "build": "npm --workspace=apps/studio-effect-su run build",
-    "preview": "npm --workspace=apps/studio-effect-su run preview",
-    "test": "npm --workspace=apps/studio-effect-su run test",
-    "typecheck": "npm --workspace=apps/studio-effect-su run typecheck"
+    "dev": "npm --workspace=apps/xl3d run dev",
+    "dev:su": "npm --workspace=apps/studio-effect-su run dev",
+    "dev:xl3d": "npm --workspace=apps/xl3d run dev",
+    "build": "npm --workspaces run build",
+    "build:su": "npm --workspace=apps/studio-effect-su run build",
+    "build:xl3d": "npm --workspace=apps/xl3d run build",
+    "test": "npm --workspaces run test",
+    "test:su": "npm --workspace=apps/studio-effect-su run test",
+    "test:xl3d": "npm --workspace=apps/xl3d run test",
+    "typecheck": "npm --workspaces run typecheck"
   }
 }
