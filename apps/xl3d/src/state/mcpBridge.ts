@@ -76,6 +76,8 @@ export interface McpBridgeConfig {
   syncedRevisions: Record<string, number>;
 }
 
+export const DEFAULT_CLOUD_SERVER_URL = 'https://xlone-room.aleksander200620062006.workers.dev';
+
 const STORAGE_KEY = 'xl3d_mcp_bridge_v2';
 const LEGACY_STORAGE_KEY = 'xl3d_mcp_bridge_v1';
 
@@ -166,8 +168,9 @@ class XL3DMcpBridge {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as Partial<McpBridgeConfig>;
+        const savedUrl = String(parsed.serverUrl ?? '').trim();
         return {
-          serverUrl: String(parsed.serverUrl ?? ''),
+          serverUrl: savedUrl || DEFAULT_CLOUD_SERVER_URL,
           roomId: String(parsed.roomId ?? parsed.activeWorkspaceId ?? `xl3d-${randomCode(4)}`),
           token: String(parsed.token ?? parsed.mcpToken ?? randomCode(14)),
           sessionToken: String(parsed.sessionToken ?? ''),
@@ -183,7 +186,7 @@ class XL3DMcpBridge {
       }
     }
     const cfg: McpBridgeConfig = {
-      serverUrl: '',
+      serverUrl: DEFAULT_CLOUD_SERVER_URL,
       roomId: `xl3d-${randomCode(4)}`,
       token: randomCode(14),
       sessionToken: '',
