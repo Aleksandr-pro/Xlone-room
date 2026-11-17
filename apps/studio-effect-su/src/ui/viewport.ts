@@ -140,16 +140,30 @@ export function mountViewport(container: HTMLElement): void {
   function syncToolbar(): void {
     const state = store.getState();
     const comp = store.getActiveComp();
+    const tr = store.t();
     badgeEl.textContent = `${comp.width}×${comp.height} • ${comp.fps}fps`;
     vpZoomBtn.textContent = `${Math.round(state.viewportZoom * 100)}%`;
+    vpZoomBtn.title = tr.vpZoomTitle;
     playBtn.innerHTML = state.isPlaying ? ICONS.pause : ICONS.play;
+    playBtn.title = tr.playPause;
     playBtn.classList.toggle('active', state.isPlaying);
     loopBtn.classList.toggle('active', state.loop);
+    loopBtn.title = tr.loop;
     qualityBtn.textContent =
-      state.previewQuality === 0.5 ? '1/2' : state.previewQuality === 0.75 ? '3/4' : 'Full';
+      state.previewQuality === 0.5 ? '1/2' : state.previewQuality === 0.75 ? '3/4' : tr.qualityFull;
+    qualityBtn.title = tr.previewRes;
     safeBtn.classList.toggle('active', state.showSafeMargins);
+    safeBtn.title = tr.safeMargins;
     gizmoBtn.classList.toggle('active', state.showGizmo);
+    gizmoBtn.title = tr.transformGizmo;
     gridBtn.classList.toggle('active', state.transparentGrid);
+    gridBtn.title = tr.transparencyGrid;
+    const toStartBtn = container.querySelector<HTMLElement>('[data-action="toStart"]');
+    const prevBtn = container.querySelector<HTMLElement>('[data-action="prevFrame"]');
+    const nextBtn = container.querySelector<HTMLElement>('[data-action="nextFrame"]');
+    if (toStartBtn) toStartBtn.title = tr.toStart;
+    if (prevBtn) prevBtn.title = tr.prevFrame;
+    if (nextBtn) nextBtn.title = tr.nextFrame;
   }
 
   vpZoomBtn.addEventListener('click', () => {

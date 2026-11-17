@@ -44,11 +44,12 @@ export function mountInspector(container: HTMLElement): void {
 
   function render(): void {
     const state = store.getState();
+    const tr = store.t();
     const comp = store.getActiveComp();
     const layer = store.getSelectedLayer();
 
     if (!layer) {
-      container.innerHTML = `<div class="panel-empty">Выберите слой в таймлайне или нажмите на него на холсте.</div>`;
+      container.innerHTML = `<div class="panel-empty">${tr.selectLayerHint}</div>`;
       return;
     }
 
@@ -68,7 +69,7 @@ export function mountInspector(container: HTMLElement): void {
     ).join('');
 
     const matteVal: TrackMatteMode = layer.trackMatte ?? 'none';
-    const matteAboveName = layerIndex > 0 ? comp.layers[layerIndex - 1].name : 'Нет слоя выше';
+    const matteAboveName = layerIndex > 0 ? comp.layers[layerIndex - 1].name : tr.noLayerAbove;
 
     const transformFields = layer.is3D
       ? [...BASE_TRANSFORM_FIELDS, ...EXTRA_3D_FIELDS]
@@ -83,14 +84,15 @@ export function mountInspector(container: HTMLElement): void {
       const hasKfs = prop.keyframes.length > 0;
       const atKf = prop.keyframes.some((k) => Math.abs(k.time - state.currentTime) <= snapTol);
       const hasExpr = Boolean(prop.expression?.trim());
+      const fLabel = tr.propNames[f.key] ?? f.label;
 
       return `
         <div class="insp-prop-row">
           <div class="insp-prop-head">
-            <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-insp-sw="${f.key}" title="Stopwatch">${ICONS.stopwatch}</button>
-            <span class="insp-prop-label">${f.label}</span>
+            <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-insp-sw="${f.key}" title="${tr.toggleKfTitle}">${ICONS.stopwatch}</button>
+            <span class="insp-prop-label">${fLabel}</span>
             ${hasExpr ? `<span class="expr-badge">fx()</span>` : ''}
-            <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-insp-kf="${f.key}" title="Keyframe">${ICONS.diamond}</button>
+            <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-insp-kf="${f.key}" title="${tr.keyframeTooltip}">${ICONS.diamond}</button>
             <input type="number" class="num-input" data-insp-num="${f.key}" value="${val}" step="${f.step}" />
             <span class="unit">${f.unit}</span>
           </div>
@@ -104,21 +106,21 @@ export function mountInspector(container: HTMLElement): void {
       const td = layer.textData;
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Text Properties & Presets</div>
+          <div class="insp-card-title">${tr.textPropsTitle}</div>
           <textarea class="ae-textarea" data-text-field="text" rows="2">${escapeHtml(td.text)}</textarea>
           <div class="chip-row mt-6 mb-10">
-            <button class="chip-btn" data-text-preset="typewriter">Typewriter</button>
-            <button class="chip-btn" data-text-preset="popIn">Pop In</button>
-            <button class="chip-btn" data-text-preset="slideUp">Slide Up</button>
-            <button class="chip-btn" data-text-preset="neonPulse">Neon Pulse</button>
+            <button class="chip-btn" data-text-preset="typewriter">${tr.presetTypewriter}</button>
+            <button class="chip-btn" data-text-preset="popIn">${tr.presetPopIn}</button>
+            <button class="chip-btn" data-text-preset="slideUp">${tr.presetSlideUp}</button>
+            <button class="chip-btn" data-text-preset="neonPulse">${tr.presetNeonPulse}</button>
           </div>
           <div class="grid-2">
             <div>
-              <label class="field-label">Size (px)</label>
+              <label class="field-label">${tr.sizePx}</label>
               <input type="number" class="ae-input" data-text-num="fontSize" value="${td.fontSize}" min="10" max="400" />
             </div>
             <div>
-              <label class="field-label">Weight</label>
+              <label class="field-label">${tr.weight}</label>
               <select class="ae-select" data-text-select="fontWeight">
                 ${(['400', '600', '700', '900'] as const)
                   .map((w) => `<option value="${w}" ${td.fontWeight === w ? 'selected' : ''}>${w}</option>`)
@@ -126,19 +128,19 @@ export function mountInspector(container: HTMLElement): void {
               </select>
             </div>
             <div>
-              <label class="field-label">Fill Color</label>
+              <label class="field-label">${tr.fillColor}</label>
               <input type="color" class="ae-color" data-text-field="color" value="${td.color}" />
             </div>
             <div>
-              <label class="field-label">Stroke Color</label>
+              <label class="field-label">${tr.strokeColor}</label>
               <input type="color" class="ae-color" data-text-field="strokeColor" value="${td.strokeColor}" />
             </div>
             <div>
-              <label class="field-label">Stroke Width</label>
+              <label class="field-label">${tr.strokeWidth}</label>
               <input type="number" class="ae-input" data-text-num="strokeWidth" value="${td.strokeWidth}" min="0" max="40" />
             </div>
             <div>
-              <label class="field-label">Reveal (%)</label>
+              <label class="field-label">${tr.revealPct}</label>
               <input type="number" class="ae-input" data-text-num="revealProgress" value="${td.revealProgress ?? 100}" min="0" max="100" />
             </div>
           </div>
@@ -149,40 +151,40 @@ export function mountInspector(container: HTMLElement): void {
       const kinds: ShapeKind[] = ['rect', 'roundedRect', 'ellipse', 'star', 'polygon'];
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Shape Properties</div>
+          <div class="insp-card-title">${tr.shapePropsTitle}</div>
           <div class="grid-2">
             <div>
-              <label class="field-label">Shape</label>
+              <label class="field-label">${tr.shapeLabel}</label>
               <select class="ae-select" data-shape-select="kind">
-                ${kinds.map((k) => `<option value="${k}" ${sd.kind === k ? 'selected' : ''}>${k}</option>`).join('')}
+                ${kinds.map((k) => `<option value="${k}" ${sd.kind === k ? 'selected' : ''}>${tr.shapeKinds[k]}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label class="field-label">Points / Sides</label>
+              <label class="field-label">${tr.pointsSides}</label>
               <input type="number" class="ae-input" data-shape-num="points" value="${sd.points}" min="3" max="24" />
             </div>
             <div>
-              <label class="field-label">Width</label>
+              <label class="field-label">${tr.width}</label>
               <input type="number" class="ae-input" data-shape-num="width" value="${sd.width}" min="10" max="2500" />
             </div>
             <div>
-              <label class="field-label">Height</label>
+              <label class="field-label">${tr.height}</label>
               <input type="number" class="ae-input" data-shape-num="height" value="${sd.height}" min="10" max="2500" />
             </div>
             <div>
-              <label class="field-label">Fill Color</label>
+              <label class="field-label">${tr.fillColor}</label>
               <input type="color" class="ae-color" data-shape-field="fillColor" value="${sd.fillColor}" />
             </div>
             <div>
-              <label class="field-label">Fill Opacity (%)</label>
+              <label class="field-label">${tr.fillOpacityPct}</label>
               <input type="number" class="ae-input" data-shape-num="fillOpacity" value="${sd.fillOpacity}" min="0" max="100" />
             </div>
             <div>
-              <label class="field-label">Stroke Color</label>
+              <label class="field-label">${tr.strokeColor}</label>
               <input type="color" class="ae-color" data-shape-field="strokeColor" value="${sd.strokeColor}" />
             </div>
             <div>
-              <label class="field-label">Stroke Width</label>
+              <label class="field-label">${tr.strokeWidth}</label>
               <input type="number" class="ae-input" data-shape-num="strokeWidth" value="${sd.strokeWidth}" min="0" max="80" />
             </div>
           </div>
@@ -192,22 +194,22 @@ export function mountInspector(container: HTMLElement): void {
       const sd = layer.solidData;
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Solid / Gradient</div>
+          <div class="insp-card-title">${tr.solidTitle}</div>
           <div class="grid-2">
             <div>
-              <label class="field-label">Color 1</label>
+              <label class="field-label">${tr.color1}</label>
               <input type="color" class="ae-color" data-solid-field="color" value="${sd.color}" />
             </div>
             <div>
-              <label class="field-label">Color 2</label>
+              <label class="field-label">${tr.color2}</label>
               <input type="color" class="ae-color" data-solid-field="gradientColor" value="${sd.gradientColor ?? '#312e81'}" />
             </div>
             <div>
-              <label class="field-label">Gradient</label>
-              <button class="btn-ghost btn-sm" data-solid-grad-toggle>${sd.useGradient ? 'ON' : 'OFF'}</button>
+              <label class="field-label">${tr.gradient}</label>
+              <button class="btn-ghost btn-sm" data-solid-grad-toggle>${sd.useGradient ? tr.on : tr.off}</button>
             </div>
             <div>
-              <label class="field-label">Angle (°)</label>
+              <label class="field-label">${tr.angleDeg}</label>
               <input type="number" class="ae-input" data-solid-num="gradientAngle" value="${sd.gradientAngle}" min="0" max="360" />
             </div>
           </div>
@@ -218,44 +220,44 @@ export function mountInspector(container: HTMLElement): void {
       const targetLayers = comp.layers.filter((l) => l.type !== 'audio' && l.type !== 'adjustment');
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Audio & Beat Reactor</div>
-          <div class="field-label">File: <b>${escapeHtml(ad.fileName)}</b> (${ad.duration.toFixed(1)}s)</div>
+          <div class="insp-card-title">${tr.audioTitle}</div>
+          <div class="field-label">${tr.fileLabel}: <b>${escapeHtml(ad.fileName)}</b> (${ad.duration.toFixed(1)}s)</div>
           <div class="mt-6">
-            <label class="field-label">Volume: ${ad.volume}%</label>
+            <label class="field-label">${tr.volumeLabel}: ${ad.volume}%</label>
             <input type="range" class="ae-slider" data-audio-vol min="0" max="100" value="${ad.volume}" />
           </div>
           <div class="modal-divider"></div>
-          <div class="insp-card-title">Convert Audio to Keyframes</div>
+          <div class="insp-card-title">${tr.convertAudioTitle}</div>
           <div class="grid-2">
             <div>
-              <label class="field-label">Target Layer</label>
+              <label class="field-label">${tr.targetLayer}</label>
               <select class="ae-select" data-beat-target>
                 ${targetLayers.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label class="field-label">Property</label>
+              <label class="field-label">${tr.propertyLabel}</label>
               <select class="ae-select" data-beat-prop>
-                <option value="scaleX">Scale X (100 + beat)</option>
-                <option value="scaleY">Scale Y (100 + beat)</option>
-                <option value="rotation">Rotation (0 + beat)</option>
-                <option value="opacity">Opacity (40 + beat)</option>
+                <option value="scaleX">${tr.beatScaleX}</option>
+                <option value="scaleY">${tr.beatScaleY}</option>
+                <option value="rotation">${tr.beatRotation}</option>
+                <option value="opacity">${tr.beatOpacity}</option>
               </select>
             </div>
           </div>
-          <button class="btn-primary btn-sm mt-8" data-beat-generate>Generate Beat Keyframes</button>
-          <div class="export-note">Совет: в Expressions также доступна переменная <code>audioAmp</code> (например: <code>100 + audioAmp * 0.5</code>).</div>
+          <button class="btn-primary btn-sm mt-8" data-beat-generate>${tr.generateBeatKfs}</button>
+          <div class="export-note">${tr.audioExprTip}</div>
         </div>
       `;
     } else if (layer.type === 'precomp' && layer.precompData) {
       const targetComp = state.project.compositions.find((c) => c.id === layer.precompData!.compId);
       typeSectionHtml = `
         <div class="insp-card">
-          <div class="insp-card-title">Nested Pre-Composition</div>
-          <div class="field-label">Source: <b>${escapeHtml(targetComp?.name ?? 'Unknown')}</b></div>
+          <div class="insp-card-title">${tr.precompTitle}</div>
+          <div class="field-label">${tr.sourceLabel}: <b>${escapeHtml(targetComp?.name ?? tr.unknown)}</b></div>
           ${
             targetComp
-              ? `<button class="btn-primary btn-sm mt-6" data-open-precomp="${targetComp.id}">Open Pre-Comp Timeline</button>`
+              ? `<button class="btn-primary btn-sm mt-6" data-open-precomp="${targetComp.id}">${tr.openPrecompBtn}</button>`
               : ''
           }
         </div>
@@ -268,38 +270,38 @@ export function mountInspector(container: HTMLElement): void {
         ? `
         <div class="insp-card">
           <div class="insp-header-row">
-            <span class="insp-card-title" style="margin:0">Layer Mask</span>
-            <button class="btn-ghost btn-sm" data-mask-toggle>${mask?.enabled ? 'Mask ON' : '+ Add / Enable Mask'}</button>
+            <span class="insp-card-title" style="margin:0">${tr.layerMaskTitle}</span>
+            <button class="btn-ghost btn-sm" data-mask-toggle>${mask?.enabled ? tr.maskOn : tr.maskAddEnable}</button>
           </div>
           ${
             mask?.enabled
               ? `
             <div class="grid-2 mt-8">
               <div>
-                <label class="field-label">Shape</label>
+                <label class="field-label">${tr.shapeLabel}</label>
                 <select class="ae-select" data-mask-shape>
-                  <option value="rect" ${mask.shape === 'rect' ? 'selected' : ''}>Rectangle</option>
-                  <option value="ellipse" ${mask.shape === 'ellipse' ? 'selected' : ''}>Ellipse</option>
+                  <option value="rect" ${mask.shape === 'rect' ? 'selected' : ''}>${tr.maskRect}</option>
+                  <option value="ellipse" ${mask.shape === 'ellipse' ? 'selected' : ''}>${tr.maskEllipse}</option>
                 </select>
               </div>
               <div>
-                <label class="field-label">Inverted</label>
-                <button class="btn-ghost btn-sm" data-mask-invert>${mask.inverted ? 'Inverted' : 'Normal'}</button>
+                <label class="field-label">${tr.invertedLabel}</label>
+                <button class="btn-ghost btn-sm" data-mask-invert>${mask.inverted ? tr.invertedYes : tr.invertedNo}</button>
               </div>
               <div>
-                <label class="field-label">Width (px)</label>
+                <label class="field-label">${tr.widthPx}</label>
                 <input type="number" class="ae-input" data-mask-num="width" value="${mask.width}" min="10" max="4000" />
               </div>
               <div>
-                <label class="field-label">Height (px)</label>
+                <label class="field-label">${tr.heightPx}</label>
                 <input type="number" class="ae-input" data-mask-num="height" value="${mask.height}" min="10" max="4000" />
               </div>
               <div>
-                <label class="field-label">Feather (px)</label>
+                <label class="field-label">${tr.featherPx}</label>
                 <input type="number" class="ae-input" data-mask-num="feather" value="${mask.feather}" min="0" max="150" />
               </div>
               <div>
-                <label class="field-label">Opacity (%)</label>
+                <label class="field-label">${tr.opacityPct}</label>
                 <input type="number" class="ae-input" data-mask-num="opacity" value="${mask.opacity}" min="0" max="100" />
               </div>
             </div>
@@ -330,46 +332,46 @@ export function mountInspector(container: HTMLElement): void {
           <div class="insp-header-row">
             <input type="text" class="ae-input layer-title-input" data-layer-name value="${escapeHtml(layer.name)}" />
             <div class="insp-actions">
-              <button class="icon-btn" data-layer-up title="Move Layer Up">${ICONS.up}</button>
-              <button class="icon-btn" data-layer-down title="Move Layer Down">${ICONS.down}</button>
-              <button class="icon-btn" data-layer-dup title="Duplicate">${ICONS.copy}</button>
-              <button class="icon-btn danger" data-layer-del title="Delete">${ICONS.trash}</button>
+              <button class="icon-btn" data-layer-up title="${tr.moveLayerUp}">${ICONS.up}</button>
+              <button class="icon-btn" data-layer-down title="${tr.moveLayerDown}">${ICONS.down}</button>
+              <button class="icon-btn" data-layer-dup title="${tr.duplicate}">${ICONS.copy}</button>
+              <button class="icon-btn danger" data-layer-del title="${tr.delete}">${ICONS.trash}</button>
             </div>
           </div>
           <div class="grid-2 mt-8">
             <div>
-              <label class="field-label">Blend Mode</label>
+              <label class="field-label">${tr.blendMode}</label>
               <select class="ae-select" data-blend-select>${blendOptions}</select>
             </div>
             <div>
-              <label class="field-label">Parent & Link</label>
+              <label class="field-label">${tr.parentLink}</label>
               <select class="ae-select" data-parent-select>
-                <option value="">None</option>
+                <option value="">${tr.none}</option>
                 ${parentOptions}
               </select>
             </div>
             <div>
-              <label class="field-label">Track Matte (${escapeHtml(matteAboveName)})</label>
+              <label class="field-label">${tr.trackMatte} (${escapeHtml(matteAboveName)})</label>
               <select class="ae-select" data-matte-select>
-                <option value="none" ${matteVal === 'none' ? 'selected' : ''}>None</option>
-                <option value="alpha" ${matteVal === 'alpha' ? 'selected' : ''}>Alpha Matte</option>
-                <option value="alphaInverted" ${matteVal === 'alphaInverted' ? 'selected' : ''}>Alpha Inverted</option>
+                <option value="none" ${matteVal === 'none' ? 'selected' : ''}>${tr.none}</option>
+                <option value="alpha" ${matteVal === 'alpha' ? 'selected' : ''}>${tr.alphaMatte}</option>
+                <option value="alphaInverted" ${matteVal === 'alphaInverted' ? 'selected' : ''}>${tr.alphaInverted}</option>
               </select>
             </div>
             <div>
-              <label class="field-label">Layer Actions</label>
+              <label class="field-label">${tr.layerActions}</label>
               <div class="btn-row">
-                <button class="btn-ghost btn-sm ${layer.is3D ? 'active' : ''}" data-toggle-3d-insp>3D: ${layer.is3D ? 'ON' : 'OFF'}</button>
-                <button class="btn-ghost btn-sm" data-split-layer>Split</button>
-                <button class="btn-ghost btn-sm" data-center-anchor>Center Anchor</button>
-                <button class="btn-ghost btn-sm" data-precomp-layer>Pre-Comp</button>
+                <button class="btn-ghost btn-sm ${layer.is3D ? 'active' : ''}" data-toggle-3d-insp>3D: ${layer.is3D ? tr.on : tr.off}</button>
+                <button class="btn-ghost btn-sm" data-split-layer>${tr.splitShort}</button>
+                <button class="btn-ghost btn-sm" data-center-anchor>${tr.centerAnchor}</button>
+                <button class="btn-ghost btn-sm" data-precomp-layer>${tr.preComp}</button>
               </div>
             </div>
             ${
               layer.type === 'media' || layer.type === 'precomp'
                 ? `
             <div>
-              <label class="field-label">Time Speed (0.25x - 4x)</label>
+              <label class="field-label">${tr.timeSpeed}</label>
               <input type="number" class="ae-input" data-layer-speed value="${layer.speed ?? 1}" min="0.25" max="4" step="0.25" />
             </div>`
                 : ''
@@ -384,30 +386,30 @@ export function mountInspector(container: HTMLElement): void {
           layer.type !== 'audio'
             ? `
         <div class="insp-card">
-          <div class="insp-card-title">Transform</div>
+          <div class="insp-card-title">${tr.transformTitle}</div>
           ${transformRows}
         </div>
 
         <div class="insp-card">
-          <div class="insp-card-title">AE Expressions</div>
+          <div class="insp-card-title">${tr.expressionsTitle}</div>
           <div class="expr-toolbar">
             <select class="ae-select" data-expr-prop>
               ${transformFields.map(
-                (f) => `<option value="${f.key}" ${activeExprProp === f.key ? 'selected' : ''}>${f.label}</option>`
+                (f) => `<option value="${f.key}" ${activeExprProp === f.key ? 'selected' : ''}>${tr.propNames[f.key] ?? f.label}</option>`
               ).join('')}
             </select>
             <span class="expr-status ${exprCheck?.error ? 'err' : 'ok'}">
-              ${exprCode.trim() ? (exprCheck?.error ? escapeHtml(exprCheck.error) : `= ${exprCheck?.value.toFixed(1)}`) : 'Inactive'}
+              ${exprCode.trim() ? (exprCheck?.error ? escapeHtml(exprCheck.error) : `= ${exprCheck?.value.toFixed(1)}`) : tr.exprInactive}
             </span>
           </div>
-          <input type="text" class="ae-input mono mt-6" data-expr-input placeholder="Напр: wiggle(4, 25) или 100 + audioAmp * 0.5" value="${escapeHtml(exprCode)}" />
+          <input type="text" class="ae-input mono mt-6" data-expr-input placeholder="${tr.exprPlaceholder}" value="${escapeHtml(exprCode)}" />
           <div class="chip-row mt-6">
             <button class="chip-btn" data-expr-preset="wiggle(4, 25)">wiggle(4, 25)</button>
             <button class="chip-btn" data-expr-preset="time * 90">time * 90</button>
             <button class="chip-btn" data-expr-preset="100 + audioAmp * 0.5">audioAmp beat</button>
             <button class="chip-btn" data-expr-preset="value + Math.sin(time * 4) * 80">sin wave</button>
             <button class="chip-btn" data-expr-preset='loopOut("pingpong")'>loopOut</button>
-            <button class="chip-btn danger" data-expr-preset="">Clear</button>
+            <button class="chip-btn danger" data-expr-preset="">${tr.exprClear}</button>
           </div>
         </div>`
             : ''

@@ -37,6 +37,7 @@
 - **Режимы наложения (Blending Modes)**: `Normal`, `Add`, `Screen`, `Multiply`, `Overlay`, `Difference`, `Lighten`, `Darken`.
 - **20 эффектов (VFX)**: `Deep Glow`, `Gaussian Blur`, `Radial Zoom Blur`, `Directional Blur`, `Wave Warp`, `RGB Split`, `Glitch / Scanlines`, `Motion Tile`, `Camera Shake`, `Drop Shadow`, `Hue / Saturation`, `Brightness / Contrast`, `Tint / Colorize`, `Exposure & Gamma`, `Color Key (Green Screen)`, `Symmetry / Kaleido`, `Posterize`, `Halftone Dots`, `Vignette`, `Pixelate` с изменением порядка стека.
 - **3D-слои и монтаж**: переключатель `3D` (`Rotate X / Rotate Y / Z Depth` с перспективой), разрезание слоёв `Split` по бегунку, маркеры таймлайна (`+ M`), `Time Speed` (0.25x–4x) и сведение аудиодорожек при рендере видео.
+- **Языки интерфейса (`RU / EN`)**: полная поддержка русского и английского языков с мгновенным переключателем в верхней панели.
 - **AE Expressions (выражения)**: поддержка `time`, `index`, `audioAmp`, `wiggle(freq, amp)`, `loopOut()`, `random()`, `Math.*`.
 
 ---

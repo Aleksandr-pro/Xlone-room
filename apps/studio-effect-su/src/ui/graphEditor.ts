@@ -5,10 +5,11 @@ import { store } from '../state/store';
 export function mountGraphEditor(container: HTMLElement): void {
   function render(): void {
     const state = store.getState();
+    const tr = store.t();
     const layer = store.getSelectedLayer();
 
     if (!layer) {
-      container.innerHTML = `<div class="panel-empty">Выберите слой и ключевой кадр (◆), чтобы редактировать кривую Безье.</div>`;
+      container.innerHTML = `<div class="panel-empty">${tr.graphEmptySelect}</div>`;
       return;
     }
 
@@ -19,8 +20,7 @@ export function mountGraphEditor(container: HTMLElement): void {
     if (kfs.length === 0) {
       container.innerHTML = `
         <div class="panel-empty">
-          У свойства <b>${propKey}</b> нет ключевых кадров.<br/>
-          Включите секундомер (Stopwatch) в Timeline или Inspector, чтобы открыть кривые анимации.
+          ${tr.graphNoKfs(tr.propNames[propKey] ?? propKey)}
         </div>
       `;
       return;
@@ -37,11 +37,11 @@ export function mountGraphEditor(container: HTMLElement): void {
       .join('');
 
     const easings: Array<{ id: EasingType; label: string }> = [
-      { id: 'linear', label: 'Linear' },
-      { id: 'easyEase', label: 'Easy Ease (F9)' },
-      { id: 'easeIn', label: 'Ease In' },
-      { id: 'easeOut', label: 'Ease Out' },
-      { id: 'hold', label: 'Hold' },
+      { id: 'linear', label: tr.easingLinear },
+      { id: 'easyEase', label: tr.easingEasyEase },
+      { id: 'easeIn', label: tr.easingEaseIn },
+      { id: 'easeOut', label: tr.easingEaseOut },
+      { id: 'hold', label: tr.easingHold },
     ];
 
     container.innerHTML = `
@@ -55,13 +55,13 @@ export function mountGraphEditor(container: HTMLElement): void {
                   `<button class="chip-btn ${selectedKf.easing === e.id ? 'active' : ''}" data-graph-easing="${e.id}">${e.label}</button>`
               )
               .join('')}
-            <button class="chip-btn danger" data-graph-del-kf>Delete KF</button>
+            <button class="chip-btn danger" data-graph-del-kf>${tr.deleteKf}</button>
           </div>
         </div>
         <div class="graph-canvas-box">
           <canvas class="graph-canvas" data-graph-canvas width="360" height="220"></canvas>
           <div class="graph-readout">
-            <span>Easing: <b>${selectedKf.easing}</b></span>
+            <span>${tr.easingLabel}: <b>${selectedKf.easing}</b></span>
             <span>Bezier(${handles.x1.toFixed(2)}, ${handles.y1.toFixed(2)}, ${handles.x2.toFixed(2)}, ${handles.y2.toFixed(2)})</span>
           </div>
         </div>
