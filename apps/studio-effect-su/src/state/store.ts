@@ -197,6 +197,10 @@ class StudioStore {
     for (const fn of this.timeListeners) fn();
   }
 
+  commitLiveChange(): void {
+    this.emit();
+  }
+
   snapshotForUndo(): void {
     this.history.push(this.state.project);
   }
@@ -506,13 +510,19 @@ class StudioStore {
     this.emit();
   }
 
-  updateLayer(layerId: string, updater: (layer: Layer) => void, skipUndo = false): void {
+  updateLayer(
+    layerId: string,
+    updater: (layer: Layer) => void,
+    skipUndo = false,
+    livePreviewOnly = false
+  ): void {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === layerId);
     if (!layer) return;
     if (!skipUndo) this.snapshotForUndo();
     updater(layer);
-    this.emit();
+    if (livePreviewOnly) this.emitTime();
+    else this.emit();
   }
 
   toggle3D(layerId: string): void {
@@ -707,7 +717,7 @@ class StudioStore {
     layerId: string,
     propKey: TransformPropKey,
     value: number,
-    options: { skipUndo?: boolean } = {}
+    options: { skipUndo?: boolean; livePreviewOnly?: boolean } = {}
   ): void {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === layerId);
@@ -732,7 +742,8 @@ class StudioStore {
       p.value = value;
     }
 
-    this.emit();
+    if (options.livePreviewOnly) this.emitTime();
+    else this.emit();
   }
 
   toggleStopwatch(layerId: string, propKey: TransformPropKey): void {
@@ -807,7 +818,8 @@ class StudioStore {
     kfId: string,
     easing: EasingType,
     bezier?: BezierHandles,
-    skipUndo = false
+    skipUndo = false,
+    livePreviewOnly = false
   ): void {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === layerId);
@@ -817,7 +829,8 @@ class StudioStore {
     if (!skipUndo) this.snapshotForUndo();
     keyframe.easing = easing;
     if (bezier) keyframe.bezier = bezier;
-    this.emit();
+    if (livePreviewOnly) this.emitTime();
+    else this.emit();
   }
 
   setExpression(layerId: string, propKey: TransformPropKey, expression: string): void {
@@ -876,7 +889,8 @@ class StudioStore {
     fxId: string,
     paramKey: string,
     value: number,
-    skipUndo = false
+    skipUndo = false,
+    livePreviewOnly = false
   ): void {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === layerId);
@@ -899,7 +913,8 @@ class StudioStore {
       p.value = value;
     }
 
-    this.emit();
+    if (livePreviewOnly) this.emitTime();
+    else this.emit();
   }
 
   toggleEffectParamStopwatch(layerId: string, fxId: string, paramKey: string): void {

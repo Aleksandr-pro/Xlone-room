@@ -41,8 +41,10 @@ const EXTRA_3D_FIELDS: typeof BASE_TRANSFORM_FIELDS = [
 
 export function mountInspector(container: HTMLElement): void {
   let activeExprProp: TransformPropKey = 'rotation';
+  let isDraggingSlider = false;
 
   function render(): void {
+    if (isDraggingSlider) return;
     const state = store.getState();
     const tr = store.t();
     const comp = store.getActiveComp();
@@ -478,16 +480,39 @@ export function mountInspector(container: HTMLElement): void {
     });
 
     // Audio
-    container.querySelector<HTMLInputElement>('[data-audio-vol]')?.addEventListener('input', (e) => {
-      const v = Number((e.target as HTMLInputElement).value);
-      store.updateLayer(
-        layerId,
-        (l) => {
-          if (l.audioData) l.audioData.volume = v;
-        },
-        true
-      );
-    });
+    const audioVol = container.querySelector<HTMLInputElement>('[data-audio-vol]');
+    if (audioVol) {
+      let volSnapped = false;
+      audioVol.addEventListener('pointerdown', () => {
+        isDraggingSlider = true;
+        volSnapped = false;
+      });
+      audioVol.addEventListener('input', () => {
+        if (!volSnapped) {
+          store.snapshotForUndo();
+          volSnapped = true;
+        }
+        const v = Number(audioVol.value);
+        const label = audioVol.previousElementSibling;
+        if (label) label.textContent = `${store.t().volumeLabel}: ${v}%`;
+        store.updateLayer(
+          layerId,
+          (l) => {
+            if (l.audioData) l.audioData.volume = v;
+          },
+          true,
+          true
+        );
+      });
+      const finishVol = () => {
+        if (!isDraggingSlider) return;
+        isDraggingSlider = false;
+        store.commitLiveChange();
+      };
+      audioVol.addEventListener('change', finishVol);
+      audioVol.addEventListener('pointerup', finishVol);
+      audioVol.addEventListener('pointercancel', finishVol);
+    }
     container.querySelector('[data-beat-generate]')?.addEventListener('click', () => {
       const targetId = container.querySelector<HTMLSelectElement>('[data-beat-target]')?.value;
       const propKey = (container.querySelector<HTMLSelectElement>('[data-beat-prop]')?.value ?? 'scaleX') as TransformPropKey;
@@ -513,17 +538,30 @@ export function mountInspector(container: HTMLElement): void {
 
     container.querySelectorAll<HTMLInputElement>('[data-insp-range]').forEach((rng) => {
       const key = rng.dataset.inspRange as TransformPropKey;
+      const numEl = container.querySelector<HTMLInputElement>(`[data-insp-num="${key}"]`);
       let snapped = false;
       rng.addEventListener('pointerdown', () => {
+        isDraggingSlider = true;
         snapped = false;
       });
       rng.addEventListener('input', () => {
+        isDraggingSlider = true;
         if (!snapped) {
           store.snapshotForUndo();
           snapped = true;
         }
-        store.setTransformValue(layerId, key, Number(rng.value), { skipUndo: true });
+        const v = Number(rng.value);
+        if (numEl) numEl.value = String(v);
+        store.setTransformValue(layerId, key, v, { skipUndo: true, livePreviewOnly: true });
       });
+      const finishDrag = () => {
+        if (!isDraggingSlider) return;
+        isDraggingSlider = false;
+        store.commitLiveChange();
+      };
+      rng.addEventListener('change', finishDrag);
+      rng.addEventListener('pointerup', finishDrag);
+      rng.addEventListener('pointercancel', finishDrag);
     });
 
     container.querySelectorAll<HTMLInputElement>('[data-insp-num]').forEach((inp) => {

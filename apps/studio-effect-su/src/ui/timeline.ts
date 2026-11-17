@@ -45,7 +45,10 @@ export function mountTimeline(
   container: HTMLElement,
   callbacks: { onOpenAddLayer: () => void }
 ): void {
+  let isInteracting = false;
+
   function render(): void {
+    if (isInteracting) return;
     const state = store.getState();
     const tr = store.t();
     const comp = store.getActiveComp();
@@ -407,7 +410,9 @@ export function mountTimeline(
         ruler.removeEventListener('pointerup', onUp);
       };
       ruler.addEventListener('pointermove', onMove);
+      ruler.addEventListener('pointermove', onMove);
       ruler.addEventListener('pointerup', onUp);
+      ruler.addEventListener('pointercancel', onUp);
     });
 
     // Dragging layer bars & trim handles
@@ -421,6 +426,7 @@ export function mountTimeline(
         if (!layer || layer.locked) return;
 
         e.stopPropagation();
+        isInteracting = true;
         bar.setPointerCapture(e.pointerId);
         const startX = e.clientX;
         const origIn = layer.inPoint;
@@ -448,7 +454,10 @@ export function mountTimeline(
                 l.inPoint = nextIn;
                 l.outPoint = Number((nextIn + dur).toFixed(2));
               }
+              bar.style.left = `${Math.round(l.inPoint * zoom)}px`;
+              bar.style.width = `${Math.max(14, Math.round((l.outPoint - l.inPoint) * zoom))}px`;
             },
+            true,
             true
           );
         };
@@ -456,9 +465,17 @@ export function mountTimeline(
         const onUp = () => {
           bar.removeEventListener('pointermove', onMove);
           bar.removeEventListener('pointerup', onUp);
+          bar.removeEventListener('pointercancel', onUp);
+          isInteracting = false;
+          if (snapped) {
+            store.commitLiveChange();
+          } else {
+            store.selectLayer(layerId);
+          }
         };
         bar.addEventListener('pointermove', onMove);
         bar.addEventListener('pointerup', onUp);
+        bar.addEventListener('pointercancel', onUp);
       });
     });
 
@@ -472,7 +489,8 @@ export function mountTimeline(
         const kfObj = layer?.transform[propKey]?.keyframes.find((k) => k.id === kfId);
         if (!kfObj) return;
 
-        store.selectKeyframe({ layerId, propKey, kfId });
+        isInteracting = true;
+        dm.classList.add('selected');
         store.setTime(kfObj.time);
 
         dm.setPointerCapture(e.pointerId);
@@ -498,10 +516,13 @@ export function mountTimeline(
         const onUp = () => {
           dm.removeEventListener('pointermove', onMove);
           dm.removeEventListener('pointerup', onUp);
-          if (snapped) render();
+          dm.removeEventListener('pointercancel', onUp);
+          isInteracting = false;
+          store.selectKeyframe({ layerId, propKey, kfId });
         };
         dm.addEventListener('pointermove', onMove);
         dm.addEventListener('pointerup', onUp);
+        dm.addEventListener('pointercancel', onUp);
       });
     });
 
