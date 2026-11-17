@@ -373,6 +373,15 @@ class XL3DMcpBridge {
   async handleAuthCallbackUrl(callbackUrl: string): Promise<void> {
     try {
       const parsed = new URL(callbackUrl);
+      const err = parsed.searchParams.get('error');
+      if (err) {
+        this.authError =
+          err === 'google_not_configured'
+            ? `Добавьте GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET в Cloudflare Workers. Redirect URI: ${this.normalizeHttpBase(this.config.serverUrl)}/auth/google/callback`
+            : `Ошибка Google Auth: ${err}`;
+        this.notifyListenersOnly();
+        return;
+      }
       const tok = parsed.searchParams.get('xl3d_token') || parsed.searchParams.get('token');
       if (tok) {
         await this.completeTokenLogin(tok);
@@ -458,13 +467,37 @@ class XL3DMcpBridge {
     }
   }
 
-  startGoogleAuth(): void {
+  async startGoogleAuth(): Promise<void> {
     const base = this.normalizeHttpBase(this.config.serverUrl);
     if (!base) {
       this.authError = 'Сначала укажите URL Cloudflare Worker';
       this.notifyListenersOnly();
       return;
     }
+
+    this.authBusy = true;
+    this.authError = '';
+    this.notifyListenersOnly();
+    try {
+      const resp = await fetch(`${base}/health`);
+      if (resp.ok) {
+        const h = (await resp.json()) as { googleAuthEnabled?: boolean };
+        this.googleAuthEnabled = Boolean(h.googleAuthEnabled);
+        if (!this.googleAuthEnabled) {
+          this.authError =
+            `На сервере не заданы GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET. Добавьте их в Cloudflare → Variables & Secrets (Redirect URI: ${base}/auth/google/callback) или войдите по Email.`;
+          this.authBusy = false;
+          this.notifyListenersOnly();
+          return;
+        }
+      }
+    } catch {
+      // If health check fails due to offline/network, still allow fallback or report
+    } finally {
+      this.authBusy = false;
+      this.notifyListenersOnly();
+    }
+
     const bridge = getAndroidBridge();
     const redirectUri = bridge?.openExternalUrl
       ? 'xl3d://auth/callback'

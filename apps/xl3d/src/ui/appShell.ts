@@ -419,7 +419,7 @@ export function mountXL3DApp(root: HTMLElement): void {
     });
     modalBody.querySelector('#xl-auth-google')?.addEventListener('click', () => {
       syncFields();
-      mcpBridge.startGoogleAuth();
+      void mcpBridge.startGoogleAuth();
     });
     modalBody.querySelector('#xl-auth-logout')?.addEventListener('click', async () => {
       await mcpBridge.logout();

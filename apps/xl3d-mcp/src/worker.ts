@@ -922,21 +922,45 @@ export default {
     }
 
     if (path === '/auth/google/start' && request.method === 'GET') {
-      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-        return jsonResp(
-          {
-            error:
-              'Google Auth ещё не настроен на сервере. Добавьте GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET в Cloudflare Workers Variables/Secrets (или GitHub Secrets).',
-          },
-          501
-        );
-      }
       const redirectUri = url.searchParams.get('redirect_uri') || `${url.origin}/`;
+      const callbackUrl = `${url.origin}/auth/google/callback`;
+      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+        const backHref = redirectUri.startsWith('xl3d://')
+          ? 'xl3d://auth/callback?error=google_not_configured'
+          : redirectUri;
+        const html = `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Настройка Google Auth — XL3D</title>
+<style>
+  body { font-family: Inter, system-ui, sans-serif; background: #14161c; color: #f1f5f9; max-width: 600px; margin: 28px auto; padding: 0 16px; line-height: 1.55; }
+  .card { background: #1c1f28; border: 1px solid #2e3444; border-radius: 12px; padding: 16px; margin: 14px 0; }
+  code { background: #11131a; color: #ffb169; padding: 4px 8px; border-radius: 6px; word-break: break-all; display: inline-block; margin-top: 4px; }
+  .btn { display: inline-block; margin-top: 10px; padding: 10px 16px; border-radius: 10px; background: #f38020; color: #111; font-weight: 700; text-decoration: none; }
+</style>
+</head><body>
+  <h2>🔑 Осталось подключить Google OAuth (2 минуты)</h2>
+  <p>Чтобы заработала кнопка <b>«Войти через Google»</b>, добавьте ваши ключи Google OAuth в Cloudflare Worker:</p>
+  <div class="card">
+    <ol style="padding-left:18px;margin:0;">
+      <li>Откройте <b>Google Cloud Console → APIs &amp; Services → Credentials</b> и создайте <b>OAuth 2.0 Client ID (Web application)</b>.</li>
+      <li>В <b>Authorized redirect URIs</b> вставьте:<br><code>${escapeHtml(callbackUrl)}</code></li>
+      <li>Откройте <b>Cloudflare Dashboard → Workers &amp; Pages → ваш Worker → Settings → Variables and Secrets</b> и добавьте:<br>
+        <code>GOOGLE_CLIENT_ID</code> и <code>GOOGLE_CLIENT_SECRET</code>.
+      </li>
+    </ol>
+  </div>
+  <p style="color:#9aa2b3;font-size:13px;">Регистрация и вход по Email + Пароль в XL3D работают уже сейчас без настройки Google ключей.</p>
+  <a class="btn" href="${escapeHtml(backHref)}">← Вернуться в XL3D</a>
+</body></html>`;
+        return new Response(html, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8', ...CORS_HEADERS },
+        });
+      }
       const hub = getAccountHub(env);
       const secResp = await hub.fetch('https://account.internal/internal/oauth-secret');
       const { secret } = (await secResp.json()) as { secret: string };
       const state = await signOAuthState({ redirectUri }, secret);
-      const callbackUrl = `${url.origin}/auth/google/callback`;
       const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       googleUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
       googleUrl.searchParams.set('redirect_uri', callbackUrl);

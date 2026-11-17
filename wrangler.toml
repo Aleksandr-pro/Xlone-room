@@ -3,9 +3,8 @@ main = "apps/xl3d-mcp/src/worker.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-[vars]
-MCP_TOKEN = ""
-GOOGLE_CLIENT_ID = ""
+# Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AUTH_SECRET, or MCP_TOKEN
+# in Cloudflare Dashboard (Variables & Secrets) or GitHub Actions Secrets.
 
 [[durable_objects.bindings]]
 name = "ROOM_HUB"
