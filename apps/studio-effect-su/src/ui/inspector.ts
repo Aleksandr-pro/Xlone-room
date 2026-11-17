@@ -268,7 +268,7 @@ export function mountInspector(container: HTMLElement): void {
     const maskSectionHtml =
       layer.type !== 'audio' && layer.type !== 'adjustment' && layer.type !== 'null'
         ? `
-        <div class="insp-card">
+        <div class="insp-card" data-section="mask">
           <div class="insp-header-row">
             <span class="insp-card-title" style="margin:0">${tr.layerMaskTitle}</span>
             <button class="btn-ghost btn-sm" data-mask-toggle>${mask?.enabled ? tr.maskOn : tr.maskAddEnable}</button>
@@ -390,7 +390,7 @@ export function mountInspector(container: HTMLElement): void {
           ${transformRows}
         </div>
 
-        <div class="insp-card">
+        <div class="insp-card" data-section="expressions">
           <div class="insp-card-title">${tr.expressionsTitle}</div>
           <div class="expr-toolbar">
             <select class="ae-select" data-expr-prop>
@@ -418,6 +418,14 @@ export function mountInspector(container: HTMLElement): void {
     `;
 
     bindEvents(layer.id);
+
+    if (state.inspectorFocusSection) {
+      const target = container.querySelector<HTMLElement>(`[data-section="${state.inspectorFocusSection}"]`);
+      store.clearInspectorFocusSection();
+      if (target) {
+        requestAnimationFrame(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      }
+    }
   }
 
   function bindEvents(layerId: string): void {

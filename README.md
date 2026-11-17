@@ -10,7 +10,7 @@
 
 | Приложение | Клон чего | Размер оригинала (Windows) | Размер клона (Android APK) | Статус | Скачать APK |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.2) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk) |
+| **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.3) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/StudioEffect-SU.apk) |
 
 ---
 

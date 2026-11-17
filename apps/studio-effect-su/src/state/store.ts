@@ -47,6 +47,8 @@ export interface StoreState {
   viewportPanX: number;
   viewportPanY: number;
   locale: Locale;
+  timelineLayersExpanded: boolean;
+  inspectorFocusSection: 'mask' | 'expressions' | null;
 }
 
 type Listener = () => void;
@@ -81,6 +83,8 @@ class StudioStore {
       viewportPanX: 0,
       viewportPanY: 0,
       locale: detectInitialLocale(),
+      timelineLayersExpanded: false,
+      inspectorFocusSection: null,
     };
     if (typeof document !== 'undefined') {
       document.documentElement.lang = this.state.locale;
@@ -138,6 +142,27 @@ class StudioStore {
 
   toggleLocale(): void {
     this.setLocale(this.state.locale === 'ru' ? 'en' : 'ru');
+  }
+
+  toggleTimelineLayersExpanded(): void {
+    this.state.timelineLayersExpanded = !this.state.timelineLayersExpanded;
+    this.emit();
+  }
+
+  openInspectorSection(section: 'mask' | 'expressions' | null): void {
+    this.state.activeTab = 'inspector';
+    this.state.inspectorFocusSection = section;
+    this.emit();
+  }
+
+  clearInspectorFocusSection(): void {
+    this.state.inspectorFocusSection = null;
+  }
+
+  toggleSelectedPropKeyframe(): void {
+    const layer = this.getSelectedLayer();
+    if (!layer) return;
+    this.toggleKeyframeAtCurrentTime(layer.id, this.state.selectedPropKey);
   }
 
   getActiveComp(): Composition {

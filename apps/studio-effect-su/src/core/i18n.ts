@@ -257,6 +257,25 @@ export interface TranslationDict {
   exportRenderingFrame: (frame: number, total: number, pct: number) => string;
   exportDone: (fileName: string, kb: string) => string;
   exportError: string;
+
+  // CapCut-style Mobile Dock & View Menu
+  dockAdd: string;
+  dockEdit: string;
+  dockFx: string;
+  dockGraph: string;
+  dockSplit: string;
+  dockKeyframe: string;
+  dock3D: string;
+  dockMask: string;
+  dockExpr: string;
+  dockMarker: string;
+  dockDup: string;
+  dockDel: string;
+  backToTimeline: string;
+  viewOptionsBtn: string;
+  toggleAePanelTitle: string;
+  keyframeBtnLabel: string;
+  doneBtn: string;
 }
 
 const RU: TranslationDict = {
@@ -496,6 +515,24 @@ const RU: TranslationDict = {
   exportRenderingFrame: (frame, total, pct) => `Рендер кадра ${frame} / ${total} (${pct}%)`,
   exportDone: (fileName, kb) => `Готово: ${fileName} (${kb} KB)`,
   exportError: 'Ошибка рендера',
+
+  dockAdd: 'Добавить',
+  dockEdit: 'Свойства',
+  dockFx: 'Эффекты',
+  dockGraph: 'Кривые',
+  dockSplit: 'Разрезать',
+  dockKeyframe: 'Ключ ◆',
+  dock3D: '3D слой',
+  dockMask: 'Маска',
+  dockExpr: 'Формулы',
+  dockMarker: 'Метка',
+  dockDup: 'Копия',
+  dockDel: 'Удалить',
+  backToTimeline: 'Таймлайн',
+  viewOptionsBtn: 'Вид',
+  toggleAePanelTitle: 'Показать/скрыть панель слоёв AE',
+  keyframeBtnLabel: 'Ключ ◆',
+  doneBtn: 'Готово',
 };
 
 const EN: TranslationDict = {
@@ -735,6 +772,24 @@ const EN: TranslationDict = {
   exportRenderingFrame: (frame, total, pct) => `Rendering frame ${frame} / ${total} (${pct}%)`,
   exportDone: (fileName, kb) => `Done: ${fileName} (${kb} KB)`,
   exportError: 'Render error',
+
+  dockAdd: 'Add',
+  dockEdit: 'Edit',
+  dockFx: 'Effects',
+  dockGraph: 'Curves',
+  dockSplit: 'Split',
+  dockKeyframe: 'Key ◆',
+  dock3D: '3D',
+  dockMask: 'Mask',
+  dockExpr: 'Expr',
+  dockMarker: 'Marker',
+  dockDup: 'Copy',
+  dockDel: 'Delete',
+  backToTimeline: 'Timeline',
+  viewOptionsBtn: 'View',
+  toggleAePanelTitle: 'Expand/Collapse AE Layers Panel',
+  keyframeBtnLabel: 'Key ◆',
+  doneBtn: 'Done',
 };
 
 export const EFFECT_I18N_RU: Record<

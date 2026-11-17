@@ -50,6 +50,7 @@ export function mountTimeline(
     const tr = store.t();
     const comp = store.getActiveComp();
     const zoom = state.timelineZoom;
+    const isExpandedPanel = state.timelineLayersExpanded;
     const trackWidth = Math.max(320, Math.ceil(comp.duration * zoom) + 40);
     const snapTol = 0.5 / comp.fps;
 
@@ -74,7 +75,8 @@ export function mountTimeline(
       const hasMask = Boolean(layer.mask?.enabled);
       const hasMatte = Boolean(layer.trackMatte && layer.trackMatte !== 'none');
 
-      leftRowsHtml += `
+      leftRowsHtml += isExpandedPanel
+        ? `
         <div class="tl-layer-row ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
           <span class="tl-color-bar" style="background:${layer.colorLabel}"></span>
           <button class="tl-mini-btn" data-toggle-expand="${layer.id}" title="${tr.expandTransform}">
@@ -96,10 +98,19 @@ export function mountTimeline(
             <button class="tl-flag-btn ${layer.locked ? 'on' : ''}" data-toggle-lock="${layer.id}" title="${tr.lockTitle}">${layer.locked ? ICONS.lock : ICONS.unlock}</button>
           </div>
         </div>
+      `
+        : `
+        <div class="tl-layer-row compact ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
+          <span class="tl-color-bar" style="background:${layer.colorLabel}"></span>
+          <button class="tl-mini-btn" data-toggle-expand="${layer.id}" title="${tr.expandTransform}">
+            ${layer.expanded ? ICONS.chevronDown : ICONS.chevronRight}
+          </button>
+          <button class="tl-flag-btn ${layer.visible ? 'on' : ''}" data-toggle-vis="${layer.id}" title="${tr.visibilityTitle}">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
+        </div>
       `;
 
       const barLeft = Math.round(layer.inPoint * zoom);
-      const barWidth = Math.max(10, Math.round((layer.outPoint - layer.inPoint) * zoom));
+      const barWidth = Math.max(14, Math.round((layer.outPoint - layer.inPoint) * zoom));
       const waveformHtml =
         layer.type === 'audio' && layer.audioData?.waveform?.length
           ? `<div class="tl-waveform">${layer.audioData.waveform
@@ -107,12 +118,20 @@ export function mountTimeline(
               .join('')}</div>`
           : '';
 
+      const badgesInBar = [
+        layer.is3D ? `<span class="tl-bar-pill d3">3D</span>` : '',
+        fxCount > 0 ? `<span class="tl-bar-pill fx">fx${fxCount}</span>` : '',
+        hasMask ? `<span class="tl-bar-pill mask">M</span>` : '',
+      ].join('');
+
       rightRowsHtml += `
         <div class="tl-track-row ${isSelected ? 'selected' : ''}" data-select-layer="${layer.id}">
-          <div class="tl-layer-bar" data-bar-layer="${layer.id}" style="left:${barLeft}px;width:${barWidth}px;background:${layer.colorLabel}33;border-color:${layer.colorLabel}">
+          <div class="tl-layer-bar ${isSelected ? 'active-clip' : ''}" data-bar-layer="${layer.id}" style="left:${barLeft}px;width:${barWidth}px;background:${layer.colorLabel}36;border-color:${isSelected ? '#ffffff' : layer.colorLabel}">
             ${waveformHtml}
             <div class="tl-trim-handle left" data-trim="in" data-layer="${layer.id}"></div>
+            <span class="tl-bar-type" style="color:${layer.colorLabel}">${typeTag(layer)}</span>
             <span class="tl-bar-label">${escapeHtml(layer.name)}</span>
+            <div class="tl-bar-pills">${badgesInBar}</div>
             <div class="tl-trim-handle right" data-trim="out" data-layer="${layer.id}"></div>
           </div>
         </div>
@@ -126,12 +145,21 @@ export function mountTimeline(
           const atKf = prop.keyframes.some((k) => Math.abs(k.time - state.currentTime) <= snapTol);
           const curVal = evaluateProp(prop, state.currentTime, layerIndex, comp, `${layer.id}:${row.key}`);
           const isRowSel = isSelected && state.selectedPropKey === row.key;
+          const propName = tr.propNames[row.key] ?? row.label;
+          const valText = `${Math.round(curVal * 10) / 10}${row.unit}`;
 
-          leftRowsHtml += `
+          leftRowsHtml += isExpandedPanel
+            ? `
             <div class="tl-prop-row ${isRowSel ? 'selected' : ''}" data-select-prop="${layer.id}:${row.key}">
               <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-sw="${layer.id}:${row.key}" title="${tr.toggleKfTitle}">${ICONS.stopwatch}</button>
-              <span class="tl-prop-name">${tr.propNames[row.key] ?? row.label}</span>
-              <span class="tl-prop-val">${Math.round(curVal * 10) / 10}${row.unit}</span>
+              <span class="tl-prop-name">${propName}</span>
+              <span class="tl-prop-val">${valText}</span>
+              <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-kf-toggle="${layer.id}:${row.key}" title="${tr.addRemoveKfTitle}">${ICONS.diamond}</button>
+            </div>
+          `
+            : `
+            <div class="tl-prop-row compact ${isRowSel ? 'selected' : ''}" data-select-prop="${layer.id}:${row.key}">
+              <button class="tl-sw-btn ${hasKfs ? 'on' : ''}" data-sw="${layer.id}:${row.key}" title="${tr.toggleKfTitle}">${ICONS.stopwatch}</button>
               <button class="tl-kf-btn ${atKf ? 'on' : ''}" data-kf-toggle="${layer.id}:${row.key}" title="${tr.addRemoveKfTitle}">${ICONS.diamond}</button>
             </div>
           `;
@@ -146,6 +174,7 @@ export function mountTimeline(
 
           rightRowsHtml += `
             <div class="tl-prop-track ${isRowSel ? 'selected' : ''}" data-select-prop="${layer.id}:${row.key}">
+              ${!isExpandedPanel ? `<span class="tl-track-prop-tag">${propName} <b>${valText}</b></span>` : ''}
               ${kfsHtml}
             </div>
           `;
@@ -165,9 +194,8 @@ export function mountTimeline(
       <div class="tl-shell">
         <div class="tl-toolbar">
           <div class="tl-toolbar-group">
-            <button class="btn-primary btn-sm" data-tl-add>${tr.addLayerBtn}</button>
-            <button class="btn-ghost btn-sm" data-tl-split title="${tr.splitTitle}">${tr.splitBtn}</button>
-            <button class="btn-ghost btn-sm" data-tl-marker title="${tr.addMarkerTitle}">${tr.addMarkerBtn}</button>
+            <button class="btn-ghost btn-sm ${isExpandedPanel ? 'active' : ''}" data-tl-panel-toggle title="${tr.toggleAePanelTitle}">${ICONS.panelToggle}</button>
+            <button class="btn-ghost btn-sm" data-tl-kf-add title="${tr.addRemoveKfTitle}">${tr.keyframeBtnLabel}</button>
           </div>
           <div class="tl-toolbar-group">
             <button class="btn-ghost btn-sm" data-tl-zoom="-25">−</button>
@@ -179,9 +207,9 @@ export function mountTimeline(
             <button class="btn-ghost btn-sm" data-tl-kf-nav="1" title="${tr.nextKfTitle}">◆ ▶</button>
           </div>
         </div>
-        <div class="tl-split">
+        <div class="tl-split ${isExpandedPanel ? 'expanded-mode' : 'compact-mode'}">
           <div class="tl-left" data-tl-left>
-            <div class="tl-left-header">${tr.layersHeader(comp.layers.length)}</div>
+            <div class="tl-left-header">${isExpandedPanel ? tr.layersHeader(comp.layers.length) : `${comp.layers.length}`}</div>
             <div class="tl-left-body" data-tl-left-body>
               ${leftRowsHtml || `<div class="empty-hint">${tr.noLayersHint}</div>`}
             </div>
@@ -214,6 +242,14 @@ export function mountTimeline(
     // Sync vertical scroll
     rightPane.addEventListener('scroll', () => {
       leftBody.scrollTop = rightPane.scrollTop;
+    });
+
+    container.querySelector('[data-tl-panel-toggle]')?.addEventListener('click', () => {
+      store.toggleTimelineLayersExpanded();
+    });
+
+    container.querySelector('[data-tl-kf-add]')?.addEventListener('click', () => {
+      store.toggleSelectedPropKeyframe();
     });
 
     container.querySelector('[data-tl-add]')?.addEventListener('click', () => {
