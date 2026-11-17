@@ -3,6 +3,7 @@ import { getCameraBasis, inverseRotateVec3, uid, type OrbitCamera } from '../cor
 import type {
   BakeType,
   CameraData,
+  CodeScript,
   EditSelectMode,
   InteractionMode,
   LightData,
@@ -13,6 +14,7 @@ import type {
   PaintSettings,
   PhysicsSettings,
   SceneObject,
+  ScriptLanguage,
   SculptBrush,
   SculptSettings,
   SubEditorKind,
@@ -36,6 +38,11 @@ import {
   vseRippleDelete,
 } from '../engine/physicsAndAnim';
 import { createDefaultXL3DScene, createSceneObject, type MeshPrimitiveKind } from '../engine/primitives';
+import {
+  BUILTIN_SCRIPT_TEMPLATES,
+  executeBlenderScript,
+  type ScriptExecutionResult,
+} from '../engine/scriptingEngine';
 import { applySculptStroke, clearSculptMask, invertSculptMask, paintMaskAt, quadRemesh, voxelRemesh } from '../engine/sculpt';
 
 type Listener = () => void;
@@ -118,6 +125,24 @@ export class XL3DStore {
 
   constructor() {
     this.scene = this.loadAutosave() ?? createDefaultXL3DScene();
+    this.ensureScripts();
+  }
+
+  private ensureScripts(): void {
+    if (!Array.isArray(this.scene.scripts) || this.scene.scripts.length === 0) {
+      const tpl = BUILTIN_SCRIPT_TEMPLATES[0];
+      const first: CodeScript = {
+        id: uid('scr'),
+        name: tpl.name,
+        language: tpl.language,
+        content: tpl.content,
+        updatedAt: Date.now(),
+      };
+      this.scene.scripts = [first];
+      this.scene.activeScriptId = first.id;
+    } else if (!this.scene.activeScriptId || !this.scene.scripts.some((s) => s.id === this.scene.activeScriptId)) {
+      this.scene.activeScriptId = this.scene.scripts[0].id;
+    }
   }
 
   private loadAutosave(): XL3DScene | null {
@@ -812,6 +837,7 @@ export class XL3DStore {
       if (!parsed || !Array.isArray(parsed.objects)) return false;
       this.pushUndo();
       this.scene = parsed;
+      this.ensureScripts();
       this.emitAll();
       return true;
     } catch {
@@ -822,7 +848,133 @@ export class XL3DStore {
   resetScene(): void {
     this.pushUndo();
     this.scene = createDefaultXL3DScene();
+    this.ensureScripts();
     this.emitAll();
+  }
+
+  // ---------- Scripting / Text Editor (Blender bpy & bmesh) ----------
+
+  getScripts(): CodeScript[] {
+    this.ensureScripts();
+    return this.scene.scripts!;
+  }
+
+  getActiveScript(): CodeScript | null {
+    const list = this.getScripts();
+    return list.find((s) => s.id === this.scene.activeScriptId) ?? list[0] ?? null;
+  }
+
+  setActiveScript(id: string): void {
+    this.scene.activeScriptId = id;
+    this.emitAll();
+  }
+
+  createScript(name?: string, language: ScriptLanguage = 'python', content?: string): CodeScript {
+    this.ensureScripts();
+    const ext = language === 'python' ? 'py' : 'js';
+    const idx = this.scene.scripts!.length + 1;
+    const script: CodeScript = {
+      id: uid('scr'),
+      name: name?.trim() || `script_${idx}.${ext}`,
+      language,
+      content:
+        content ??
+        (language === 'python'
+          ? `import bpy\n\nbpy.ops.mesh.primitive_cube_add(size=1.2, location=(0, 0, 1))\nprint("Готово:", bpy.context.active_object.name)`
+          : `bpy.ops.mesh.primitive_cube_add({ size: 1.2, location: [0, 0, 1] });\nprint("Готово:", bpy.context.active_object.name);`),
+      updatedAt: Date.now(),
+    };
+    this.scene.scripts!.push(script);
+    this.scene.activeScriptId = script.id;
+    this.emitAll();
+    return script;
+  }
+
+  loadScriptFile(filename: string, content: string): CodeScript {
+    this.ensureScripts();
+    const lower = filename.toLowerCase();
+    const language: ScriptLanguage =
+      lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.ts') ? 'javascript' : 'python';
+    const existing = this.scene.scripts!.find((s) => s.name === filename);
+    if (existing) {
+      existing.content = content;
+      existing.language = language;
+      existing.updatedAt = Date.now();
+      this.scene.activeScriptId = existing.id;
+      this.emitAll();
+      return existing;
+    }
+    return this.createScript(filename, language, content);
+  }
+
+  updateScriptContent(id: string, content: string, silent = false): void {
+    const scr = this.getScripts().find((s) => s.id === id);
+    if (!scr) return;
+    scr.content = content;
+    scr.updatedAt = Date.now();
+    if (silent) {
+      this.saveAutosave();
+    } else {
+      this.emitAll();
+    }
+  }
+
+  updateScriptMeta(id: string, patch: Partial<Pick<CodeScript, 'name' | 'language'>>): void {
+    const scr = this.getScripts().find((s) => s.id === id);
+    if (!scr) return;
+    if (patch.name !== undefined) scr.name = patch.name.trim() || scr.name;
+    if (patch.language !== undefined) scr.language = patch.language;
+    scr.updatedAt = Date.now();
+    this.emitAll();
+  }
+
+  deleteScript(id: string): void {
+    const list = this.getScripts();
+    if (list.length <= 1) return;
+    this.scene.scripts = list.filter((s) => s.id !== id);
+    if (this.scene.activeScriptId === id) {
+      this.scene.activeScriptId = this.scene.scripts[0]?.id ?? null;
+    }
+    this.emitAll();
+  }
+
+  applyScriptTemplate(templateId: string): void {
+    const tpl = BUILTIN_SCRIPT_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) return;
+    const existing = this.getScripts().find((s) => s.name === tpl.name);
+    if (existing) {
+      existing.content = tpl.content;
+      existing.language = tpl.language;
+      existing.updatedAt = Date.now();
+      this.scene.activeScriptId = existing.id;
+      this.emitAll();
+    } else {
+      this.createScript(tpl.name, tpl.language, tpl.content);
+    }
+  }
+
+  runActiveScript(): ScriptExecutionResult {
+    const scr = this.getActiveScript();
+    if (!scr) {
+      return { ok: false, logs: [], error: 'Нет активного скрипта', durationMs: 0, createdObjects: [], modifiedObjects: [] };
+    }
+    this.pushUndo();
+    const res = executeBlenderScript(this.scene, scr.content, scr.language);
+    scr.lastRunStatus = res.ok ? 'ok' : 'error';
+    const summaryParts: string[] = [];
+    if (res.logs.length > 0) summaryParts.push(...res.logs);
+    if (res.ok) {
+      summaryParts.push(
+        `✓ Выполнено за ${res.durationMs} мс (+${res.createdObjects.length} создано, ${res.modifiedObjects.length} изменено)`
+      );
+    } else {
+      summaryParts.push(`✕ Ошибка: ${res.error}`);
+    }
+    scr.lastRunOutput = summaryParts.join('\n');
+    this.consoleLog.push(`[${scr.name}] ${res.ok ? 'OK' : `ERR: ${res.error}`}`);
+    if (this.consoleLog.length > 20) this.consoleLog = this.consoleLog.slice(-20);
+    this.emitAll();
+    return res;
   }
 
   runMacroCommand(cmd: string): void {

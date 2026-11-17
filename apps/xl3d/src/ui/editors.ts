@@ -1,3 +1,4 @@
+import { saveFileToDevice } from '../core/fileBridge';
 import type {
   BakeType,
   CameraInputSpace,
@@ -23,6 +24,7 @@ import {
 } from '../engine/ioFormats';
 import { exportVseToOtio } from '../engine/physicsAndAnim';
 import { store } from '../state/xl3dStore';
+import { bindScriptingInteractions, renderScriptingTabHtml } from './codeEditor';
 import {
   mountGraphEditorCanvas,
   mountNodeGraphCanvas,
@@ -30,21 +32,16 @@ import {
   mountUvEditorCanvas,
 } from './visualCanvases';
 
-function downloadBlob(filename: string, data: BlobPart, mime: string): void {
-  const blob = new Blob([data], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+function downloadBlob(filename: string, data: BlobPart | Uint8Array, mime: string): void {
+  saveFileToDevice(filename, data, mime);
 }
 
 export function mountEditorPanel(container: HTMLElement): () => void {
   let isDraggingSlider = false;
+  let isEditingCode = false;
 
   const render = () => {
-    if (isDraggingSlider) return;
+    if (isDraggingSlider || isEditingCode) return;
     const tab = store.activeTab;
     const obj = store.getActiveObject();
     const mat = store.getActiveMaterial();
@@ -55,9 +52,14 @@ export function mountEditorPanel(container: HTMLElement): () => void {
     else if (tab === 'properties') html = renderPropertiesTab(obj, mat);
     else if (tab === 'nodes') html = renderNodesTab(mat);
     else if (tab === 'animation') html = renderAnimationTab(obj);
+    else if (tab === 'scripting') html = renderScriptingTabHtml();
     else html = renderEditorsHubTab();
 
     container.innerHTML = html;
+
+    if (tab === 'scripting') {
+      bindScriptingInteractions(container, (v) => { isEditingCode = v; });
+    }
 
     // Mount interactive visual canvases if present in active tab
     const ngCanvas = container.querySelector('#xl-node-canvas') as HTMLCanvasElement | null;

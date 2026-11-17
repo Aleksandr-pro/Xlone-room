@@ -1,3 +1,4 @@
+import { saveDataUrlToDevice } from '../core/fileBridge';
 import type { ObjectType, WorkspaceTab } from '../core/types';
 import { type MeshPrimitiveKind } from '../engine/primitives';
 import { renderViewport3D } from '../engine/renderer3d';
@@ -53,6 +54,7 @@ export function mountXL3DApp(root: HTMLElement): void {
     { id: 'properties', icon: '⚙', label: () => store.t().tabs.properties },
     { id: 'nodes', icon: '☍', label: () => store.t().tabs.nodes },
     { id: 'animation', icon: '▶', label: () => store.t().tabs.animation },
+    { id: 'scripting', icon: '</>', label: () => store.t().tabs.scripting },
     { id: 'editors', icon: '▦', label: () => store.t().tabs.editors },
   ];
 
@@ -145,10 +147,7 @@ export function mountXL3DApp(root: HTMLElement): void {
     renderViewport3D(rctx, rc.width, rc.height, store.scene, store.camera, 'object', store.paint, false, true);
     modalBody.querySelector('#xl-modal-close')?.addEventListener('click', closeModal);
     modalBody.querySelector('#xl-save-render')?.addEventListener('click', () => {
-      const a = document.createElement('a');
-      a.href = rc.toDataURL('image/png');
-      a.download = `xl3d-render-f${store.scene.currentFrame}.png`;
-      a.click();
+      saveDataUrlToDevice(`xl3d-render-f${store.scene.currentFrame}.png`, rc.toDataURL('image/png'), 'image/png');
     });
   }
 

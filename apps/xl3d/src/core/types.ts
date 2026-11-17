@@ -493,7 +493,19 @@ export interface VseState {
   cameraSolved: boolean;
 }
 
-export type WorkspaceTab = 'outliner' | 'tools' | 'properties' | 'nodes' | 'animation' | 'editors';
+export type ScriptLanguage = 'python' | 'javascript';
+
+export interface CodeScript {
+  id: string;
+  name: string;
+  language: ScriptLanguage;
+  content: string;
+  lastRunStatus?: 'ok' | 'error';
+  lastRunOutput?: string;
+  updatedAt: number;
+}
+
+export type WorkspaceTab = 'outliner' | 'tools' | 'properties' | 'nodes' | 'animation' | 'scripting' | 'editors';
 export type SubEditorKind = 'uv' | 'vse' | 'spreadsheet' | 'assets' | 'preferences';
 
 export interface XL3DScene {
@@ -503,9 +515,11 @@ export interface XL3DScene {
   objects: SceneObject[];
   materials: MaterialData[];
   nodeGraphs: NodeGraph[];
+  scripts?: CodeScript[];
   activeObjectId: string | null;
   activeMaterialId: string;
   activeNodeGraphId: string;
+  activeScriptId?: string | null;
   cursor3D: Vec3;
   currentFrame: number;
   startFrame: number;
