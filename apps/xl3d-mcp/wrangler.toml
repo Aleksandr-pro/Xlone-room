@@ -1,0 +1,16 @@
+name = "xl3d-mcp"
+main = "src/worker.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Optional global token. Leave empty to allow per-room tokens or set via `wrangler secret put MCP_TOKEN`
+MCP_TOKEN = ""
+
+[[durable_objects.bindings]]
+name = "ROOM_HUB"
+class_name = "RoomHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomHub"]
