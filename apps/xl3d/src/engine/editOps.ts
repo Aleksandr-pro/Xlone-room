@@ -763,3 +763,255 @@ export function toggleSharpEdges(mesh: MeshData): void {
     }
   });
 }
+
+// Bridge Edge Loops / Fill (F)
+export function bridgeOrFillSelection(mesh: MeshData, mode: EditSelectMode): void {
+  const selFaces = mesh.faces.filter((f) => f.selected);
+  if (selFaces.length >= 2) {
+    const f1 = selFaces[0];
+    const f2 = selFaces[1];
+    const n = Math.min(f1.verts.length, f2.verts.length);
+    if (n >= 3) {
+      // Remove the two interior caps and bridge corresponding edges
+      mesh.faces = mesh.faces.filter((f) => f !== f1 && f !== f2);
+      for (let i = 0; i < n; i++) {
+        const a1 = f1.verts[i];
+        const b1 = f1.verts[(i + 1) % n];
+        const a2 = f2.verts[i];
+        const b2 = f2.verts[(i + 1) % n];
+        mesh.faces.push({
+          verts: [a1, b1, b2, a2],
+          normal: { x: 0, y: 0, z: 1 },
+          smooth: f1.smooth || f2.smooth,
+          materialIndex: f1.materialIndex,
+          faceSet: f1.faceSet,
+          selected: true,
+        });
+      }
+      mesh.edges = buildEdgesFromFaces(mesh.faces);
+      recomputeNormals(mesh);
+      return;
+    }
+  }
+
+  const selVerts = Array.from(getSelectedVertexIndices(mesh, mode));
+  if (selVerts.length < 3) return;
+  const center = scale3(
+    selVerts.reduce((acc, vi) => add3(acc, mesh.vertices[vi].pos), { x: 0, y: 0, z: 0 }),
+    1 / selVerts.length
+  );
+  const sorted = [...selVerts].sort((ia, ib) => {
+    const pa = sub3(mesh.vertices[ia].pos, center);
+    const pb = sub3(mesh.vertices[ib].pos, center);
+    return Math.atan2(pa.y, pa.x) - Math.atan2(pb.y, pb.x);
+  });
+  mesh.faces.push({
+    verts: sorted,
+    normal: { x: 0, y: 0, z: 1 },
+    smooth: false,
+    materialIndex: 0,
+    faceSet: 1,
+    selected: true,
+  });
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+}
+
+// Dissolve selected vertices / faces cleanly
+export function dissolveSelection(mesh: MeshData, mode: EditSelectMode): void {
+  if (mode === 'face') {
+    const kept = mesh.faces.filter((f) => !f.selected);
+    if (kept.length > 0 && kept.length < mesh.faces.length) {
+      mesh.faces = kept;
+      mesh.edges = buildEdgesFromFaces(mesh.faces);
+      recomputeNormals(mesh);
+    }
+    return;
+  }
+  const sel = getSelectedVertexIndices(mesh, mode);
+  if (sel.size === 0) return;
+  const boundaryVerts = new Set<number>();
+  const keptFaces: Face[] = [];
+  for (const f of mesh.faces) {
+    if (f.verts.some((vi) => sel.has(vi))) {
+      f.verts.forEach((vi) => {
+        if (!sel.has(vi)) boundaryVerts.add(vi);
+      });
+    } else {
+      keptFaces.push(f);
+    }
+  }
+  if (keptFaces.length === 0) return;
+  mesh.faces = keptFaces;
+  if (boundaryVerts.size >= 3) {
+    const arr = Array.from(boundaryVerts);
+    const center = scale3(
+      arr.reduce((acc, vi) => add3(acc, mesh.vertices[vi].pos), { x: 0, y: 0, z: 0 }),
+      1 / arr.length
+    );
+    arr.sort((a, b) => {
+      const pa = sub3(mesh.vertices[a].pos, center);
+      const pb = sub3(mesh.vertices[b].pos, center);
+      return Math.atan2(pa.y, pa.x) - Math.atan2(pb.y, pb.x);
+    });
+    mesh.faces.push({
+      verts: arr,
+      normal: { x: 0, y: 0, z: 1 },
+      smooth: false,
+      materialIndex: 0,
+      faceSet: 1,
+      selected: true,
+    });
+  }
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+}
+
+// Shrink / Fatten (Alt+S) along vertex normals
+export function shrinkFattenSelection(mesh: MeshData, mode: EditSelectMode, distance = 0.15): void {
+  const sel = getSelectedVertexIndices(mesh, mode);
+  sel.forEach((vi) => {
+    const v = mesh.vertices[vi];
+    if (v) v.pos = add3(v.pos, scale3(v.normal, distance));
+  });
+  recomputeNormals(mesh);
+}
+
+// Duplicate selected faces inside current mesh (Shift+D in Edit Mode)
+export function duplicateSelectedFaces(mesh: MeshData, offset: Vec3 = { x: 0.35, y: 0, z: 0.35 }): void {
+  const selFaces = mesh.faces.filter((f) => f.selected);
+  if (selFaces.length === 0) return;
+  const mapVert = new Map<number, number>();
+  for (const f of selFaces) {
+    f.selected = false;
+    const newVerts: number[] = [];
+    for (const vi of f.verts) {
+      let nvIdx = mapVert.get(vi);
+      if (nvIdx === undefined) {
+        const src = mesh.vertices[vi];
+        src.selected = false;
+        nvIdx = mesh.vertices.length;
+        mesh.vertices.push(cloneVert(src, add3(src.pos, offset)));
+        mapVert.set(vi, nvIdx);
+      }
+      newVerts.push(nvIdx);
+    }
+    mesh.faces.push({
+      ...f,
+      verts: newVerts,
+      normal: { ...f.normal },
+      selected: true,
+    });
+  }
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+}
+
+// Separate selected faces into a new standalone MeshData (P -> Selection)
+export function extractSelectedFacesAsMesh(mesh: MeshData): MeshData | null {
+  const selFaces = mesh.faces.filter((f) => f.selected);
+  if (selFaces.length === 0 || selFaces.length >= mesh.faces.length) return null;
+
+  const newVerts: Vertex[] = [];
+  const remap = new Map<number, number>();
+  const newFaces: Face[] = [];
+
+  for (const f of selFaces) {
+    const vIdx: number[] = [];
+    for (const oldVi of f.verts) {
+      let mapped = remap.get(oldVi);
+      if (mapped === undefined) {
+        mapped = newVerts.length;
+        newVerts.push(cloneVert(mesh.vertices[oldVi], mesh.vertices[oldVi].pos));
+        remap.set(oldVi, mapped);
+      }
+      vIdx.push(mapped);
+    }
+    newFaces.push({ ...f, verts: vIdx, normal: { ...f.normal }, selected: false });
+  }
+
+  mesh.faces = mesh.faces.filter((f) => !f.selected);
+  mesh.vertices.forEach((v) => { v.selected = false; });
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+
+  const out: MeshData = {
+    vertices: newVerts,
+    edges: buildEdgesFromFaces(newFaces),
+    faces: newFaces,
+    autoSmoothAngle: mesh.autoSmoothAngle,
+    customSplitNormals: mesh.customSplitNormals,
+    udimTile: mesh.udimTile,
+    uvSyncSelection: mesh.uvSyncSelection,
+  };
+  recomputeNormals(out);
+  return out;
+}
+
+// Spin selected faces/verts around Z axis
+export function spinSelection(mesh: MeshData, mode: EditSelectMode, angleDeg = 90, steps = 4): void {
+  const selVerts = Array.from(getSelectedVertexIndices(mesh, mode));
+  if (selVerts.length < 2) return;
+  const stepRad = ((angleDeg * Math.PI) / 180) / Math.max(1, steps);
+  let prevRing = selVerts;
+  for (let s = 1; s <= steps; s++) {
+    const a = stepRad * s;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    const nextRing: number[] = [];
+    for (const vi of selVerts) {
+      const p = mesh.vertices[vi].pos;
+      const np = { x: p.x * c - p.y * sn, y: p.x * sn + p.y * c, z: p.z };
+      const idx = mesh.vertices.length;
+      mesh.vertices.push(cloneVert(mesh.vertices[vi], np));
+      nextRing.push(idx);
+    }
+    for (let i = 0; i < selVerts.length - 1; i++) {
+      mesh.faces.push({
+        verts: [prevRing[i], prevRing[i + 1], nextRing[i + 1], nextRing[i]],
+        normal: { x: 0, y: 0, z: 1 },
+        smooth: true,
+        materialIndex: 0,
+        faceSet: 1,
+        selected: s === steps,
+      });
+    }
+    prevRing = nextRing;
+  }
+  mesh.edges = buildEdgesFromFaces(mesh.faces);
+  recomputeNormals(mesh);
+}
+
+// Grow / Shrink selection (Ctrl++ / Ctrl+-)
+export function growOrShrinkSelection(mesh: MeshData, grow: boolean): void {
+  if (grow) {
+    const selVerts = new Set<number>();
+    mesh.faces.forEach((f) => {
+      if (f.selected) f.verts.forEach((vi) => selVerts.add(vi));
+    });
+    mesh.vertices.forEach((v, idx) => {
+      if (v.selected) selVerts.add(idx);
+    });
+    mesh.faces.forEach((f) => {
+      if (f.verts.some((vi) => selVerts.has(vi))) {
+        f.selected = true;
+        f.verts.forEach((vi) => {
+          if (mesh.vertices[vi]) mesh.vertices[vi].selected = true;
+        });
+      }
+    });
+  } else {
+    const borderVerts = new Set<number>();
+    mesh.faces.forEach((f) => {
+      if (!f.selected) f.verts.forEach((vi) => borderVerts.add(vi));
+    });
+    mesh.faces.forEach((f) => {
+      if (f.selected && f.verts.some((vi) => borderVerts.has(vi))) {
+        f.selected = false;
+      }
+    });
+    mesh.vertices.forEach((v, idx) => {
+      if (borderVerts.has(idx)) v.selected = false;
+    });
+  }
+}

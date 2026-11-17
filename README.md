@@ -10,7 +10,7 @@
 
 | Приложение | Клон чего | Размер оригинала (Windows) | Размер клона (Android APK) | Статус | Скачать APK |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **XL3D** | Blender 5.x (5.0–5.3) | ~1.2 GB | **< 120 KB** | Готов (v1.3) | [Скачать XL3D.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/XL3D.apk) |
+| **XL3D** | Blender 5.x (5.0–5.3) | ~1.2 GB | **< 120 KB** | Готов (v1.4) | [Скачать XL3D.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/latest/download/XL3D.apk) |
 | **StudioEffect(SU)** | Adobe After Effects | ~4.5 GB | **< 100 KB** | Готов (v1.3.1) | [Скачать StudioEffect-SU.apk](https://github.com/Aleksandr-pro/Xlone-room/releases/download/studioeffect-v1.3.11/StudioEffect-SU.apk) |
 
 ---

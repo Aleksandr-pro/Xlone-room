@@ -1,4 +1,4 @@
-import { uid } from '../../xl3d/src/core/math3d';
+import { uid, transformVec3 } from '../../xl3d/src/core/math3d';
 import type {
   Edge,
   Face,
@@ -12,6 +12,9 @@ import type {
 } from '../../xl3d/src/core/types';
 import {
   bevelSelection,
+  bridgeOrFillSelection,
+  dissolveSelection,
+  duplicateSelectedFaces,
   extrudeFaces,
   flipNormals,
   insetFaces,
@@ -19,15 +22,19 @@ import {
   mergeVerticesToCenter,
   pokeFaces,
   shadeSmoothByAngle,
+  shrinkFattenSelection,
+  spinSelection,
   subdivideMesh,
   triangulateMesh,
   trisToQuads,
   uvUnwrap,
 } from '../../xl3d/src/engine/editOps';
 import { exportSceneToOBJ, exportSceneToPLY, exportSceneToSTL } from '../../xl3d/src/engine/ioFormats';
-import { createDefaultModifier } from '../../xl3d/src/engine/modifiers';
+import { applySingleModifier, createDefaultModifier } from '../../xl3d/src/engine/modifiers';
 import {
   buildEdgesFromFaces,
+  buildMeshFromCurve,
+  buildMeshFromText3D,
   createDefaultXL3DScene,
   createSceneObject,
   defaultPhysics,
@@ -358,6 +365,11 @@ export function executeHeadlessTool(
     else if (op === 'triangulate') triangulateMesh(m);
     else if (op === 'tris_to_quads') trisToQuads(m);
     else if (op === 'merge') mergeVerticesToCenter(m, 'vertex');
+    else if (op === 'bridge_fill') bridgeOrFillSelection(m, 'face');
+    else if (op === 'dissolve') dissolveSelection(m, 'face');
+    else if (op === 'shrink_fatten') shrinkFattenSelection(m, 'vertex', amount || 0.15);
+    else if (op === 'spin') spinSelection(m, 'vertex', 90, 4);
+    else if (op === 'duplicate_faces') duplicateSelectedFaces(m);
     else if (op === 'looptools_circle') loopToolsCircle(m, 'face');
     else if (op === 'uv_unwrap') uvUnwrap(m, true);
     else if (op === 'shade_smooth') shadeSmoothByAngle(m, 35);
@@ -366,6 +378,49 @@ export function executeHeadlessTool(
     }
     const out = { object: obj.name, op, vertices: m.vertices.length, faces: m.faces.length };
     return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], structured: out };
+  }
+
+  if (toolName === 'object_action') {
+    const obj = findObject(scene, args.target ? String(args.target) : undefined);
+    if (!obj) return { isError: true, content: [{ type: 'text', text: 'Объект не найден' }] };
+    pushUndo();
+    const act = String(args.action ?? 'duplicate');
+    if (act === 'duplicate') {
+      const copy = JSON.parse(JSON.stringify(obj));
+      copy.id = uid('obj');
+      copy.name = `${obj.name}.001`;
+      copy.location.x += 1.2;
+      scene.objects.push(copy);
+      scene.activeObjectId = copy.id;
+    } else if (act === 'apply_transforms' && obj.mesh) {
+      for (const v of obj.mesh.vertices) {
+        v.pos = transformVec3(v.pos, obj.location, obj.rotation, obj.scale);
+      }
+      obj.location = { x: 0, y: 0, z: 0 };
+      obj.rotation = { x: 0, y: 0, z: 0 };
+      obj.scale = { x: 1, y: 1, z: 1 };
+      recomputeNormals(obj.mesh);
+    } else if (act === 'origin_to_geometry' && obj.mesh && obj.mesh.vertices.length > 0) {
+      let cx = 0, cy = 0, cz = 0;
+      for (const v of obj.mesh.vertices) { cx += v.pos.x; cy += v.pos.y; cz += v.pos.z; }
+      const n = obj.mesh.vertices.length;
+      cx /= n; cy /= n; cz /= n;
+      for (const v of obj.mesh.vertices) { v.pos.x -= cx; v.pos.y -= cy; v.pos.z -= cz; }
+      obj.location.x += cx * obj.scale.x; obj.location.y += cy * obj.scale.y; obj.location.z += cz * obj.scale.z;
+    } else if (act === 'convert_to_mesh') {
+      if (obj.type === 'curve' && obj.curve) obj.mesh = buildMeshFromCurve(obj.curve);
+      else if (obj.type === 'text' && obj.text3d) obj.mesh = buildMeshFromText3D(obj.text3d);
+      obj.type = 'mesh';
+    } else if (act === 'apply_modifiers' && obj.mesh) {
+      for (const mod of obj.modifiers) {
+        if (mod.enabled) applySingleModifier(obj.mesh, mod, 0, obj, scene.objects);
+      }
+      recomputeNormals(obj.mesh);
+      obj.modifiers = [];
+    }
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ ok: true, action: act, objectCount: scene.objects.length }, null, 2) }],
+    };
   }
 
   if (toolName === 'add_modifier') {

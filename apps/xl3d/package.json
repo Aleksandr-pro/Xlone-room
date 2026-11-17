@@ -1,6 +1,6 @@
 {
   "name": "xl3d",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "XL3D — Ultra-lightweight Blender 5.x clone for Android & mobile",
   "type": "module",

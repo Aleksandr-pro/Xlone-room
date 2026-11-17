@@ -1,6 +1,6 @@
-import { getCameraBasis, screenDeltaToWorld } from '../core/math3d';
+import { getCameraBasis, screenDeltaToWorld, transformVec3 } from '../core/math3d';
 import type { EditSelectMode, InteractionMode, RenderEngine, ToolGizmo } from '../core/types';
-import { pickSceneAtScreen, renderViewport3D } from '../engine/renderer3d';
+import { pickGizmoAxisAtScreen, pickSceneAtScreen, renderViewport3D } from '../engine/renderer3d';
 import { store } from '../state/xl3dStore';
 
 export function mountViewport(
@@ -26,6 +26,7 @@ export function mountViewport(
         <button class="xl-chip xl-chip-sm" data-cam="front">Front</button>
         <button class="xl-chip xl-chip-sm" data-cam="right">Right</button>
         <button class="xl-chip xl-chip-sm" data-cam="top">Top</button>
+        <button class="xl-chip xl-chip-sm" id="vp-cam-view" title="Active Camera View">📷 Cam</button>
         <button class="xl-chip xl-chip-sm" data-cam="ortho">Ortho</button>
         <button class="xl-chip xl-chip-sm" data-cam="pano">360°</button>
         <button class="xl-chip xl-chip-sm" id="vp-zoom-in">＋</button>
@@ -88,6 +89,8 @@ export function mountViewport(
     let ctxHtml = engines
       .map((s) => `<button class="xl-chip xl-chip-sm ${store.scene.render.engine === s.id ? 'active' : ''}" data-engine="${s.id}">${s.label}</button>`)
       .join('');
+    ctxHtml += `<button class="xl-chip xl-chip-sm ${store.scene.render.engine === 'workbench' && store.scene.render.workbenchShading === 'wireframe' ? 'active' : ''}" id="vp-wire-btn">Wire</button>`;
+    ctxHtml += `<button class="xl-chip xl-chip-sm ${store.snapEnabled ? 'active' : ''}" id="vp-snap-btn">🧲 Snap</button>`;
 
     if (store.mode === 'edit') {
       const esms: Array<[EditSelectMode, string]> = [
@@ -141,7 +144,8 @@ export function mountViewport(
         store.paint,
         store.showOverlays,
         false,
-        brushOverlay
+        brushOverlay,
+        { tool: store.tool, activeAxis: store.activeGizmoAxis }
       );
       const active = store.getActiveObject();
       statsEl.textContent = `${store.scene.render.engine.toUpperCase()} · ${store.scene.render.colorTransform.toUpperCase()} · ${active ? active.name : '—'} · ${stats.verticesCount}v / ${stats.trisDrawn}f`;
@@ -176,6 +180,8 @@ export function mountViewport(
     }
     if (t.id === 'vp-prop-btn') { store.proportionalEditing = !store.proportionalEditing; store.commitLiveChange(); }
     else if (t.id === 'vp-addsel-btn') { store.additiveSelect = !store.additiveSelect; store.commitLiveChange(); }
+    else if (t.id === 'vp-wire-btn') { store.toggleWireframe(); }
+    else if (t.id === 'vp-snap-btn') { store.snapEnabled = !store.snapEnabled; store.commitLiveChange(); }
     else if (t.id === 'vp-front-btn') { store.sculpt.frontFacesOnly = !(store.sculpt.frontFacesOnly !== false); store.commitLiveChange(); }
     else if (t.id === 'vp-inv-btn') { store.sculpt.invert = !store.sculpt.invert; store.commitLiveChange(); }
     else if (t.id === 'vp-symx-btn') { store.sculpt.symX = !store.sculpt.symX; store.commitLiveChange(); }
@@ -191,6 +197,7 @@ export function mountViewport(
       store.setCameraPreset((el as HTMLElement).dataset.cam as 'front' | 'right' | 'top' | 'ortho' | 'pano');
     });
   });
+  container.querySelector('#vp-cam-view')?.addEventListener('click', () => store.setCameraViewActive());
   container.querySelector('#vp-zoom-in')?.addEventListener('click', () => store.zoomCamera(0.84));
   container.querySelector('#vp-zoom-out')?.addEventListener('click', () => store.zoomCamera(1.18));
   container.querySelector('#vp-overlay-btn')?.addEventListener('click', () => store.toggleOverlays());
@@ -245,22 +252,62 @@ export function mountViewport(
       }
     }
 
-    if (store.mode === 'edit' && store.tool !== 'select' && store.scene.activeObjectId) {
-      const hit = pickSceneAtScreen(sx, sy, rect.width, rect.height, store.scene, store.camera, store.scene.activeObjectId);
-      if (hit) {
-        draggingEditTransform = true;
-        activeHitDepth = hit.depth;
-        store.pushUndo();
-        return;
+    if (store.mode === 'edit' && store.scene.activeObjectId) {
+      const actObj = store.getActiveObject();
+      if (actObj?.mesh) {
+        const selVerts = actObj.mesh.vertices.filter((v) => v.selected && !v.hidden);
+        let gizOrigin = actObj.location;
+        if (selVerts.length > 0) {
+          const avgLocal = selVerts.reduce(
+            (acc, v) => ({ x: acc.x + v.pos.x, y: acc.y + v.pos.y, z: acc.z + v.pos.z }),
+            { x: 0, y: 0, z: 0 }
+          );
+          avgLocal.x /= selVerts.length; avgLocal.y /= selVerts.length; avgLocal.z /= selVerts.length;
+          gizOrigin = transformVec3(avgLocal, actObj.location, actObj.rotation, actObj.scale);
+        }
+        const hitAxis = pickGizmoAxisAtScreen(sx, sy, rect.width, rect.height, gizOrigin, store.camera);
+        if (hitAxis) {
+          if (store.tool === 'select') store.tool = 'move';
+          store.activeGizmoAxis = hitAxis;
+          draggingEditTransform = true;
+          activeHitDepth = Math.max(1.5, store.camera.distance);
+          store.pushUndo();
+          draw();
+          return;
+        }
+      }
+      if (store.tool !== 'select') {
+        const hit = pickSceneAtScreen(sx, sy, rect.width, rect.height, store.scene, store.camera, store.scene.activeObjectId);
+        if (hit) {
+          draggingEditTransform = true;
+          activeHitDepth = hit.depth;
+          store.pushUndo();
+          return;
+        }
       }
     }
 
-    if (store.tool !== 'select' && store.mode === 'object' && store.scene.activeObjectId) {
-      const hit = pickSceneAtScreen(sx, sy, rect.width, rect.height, store.scene, store.camera, store.scene.activeObjectId);
-      if (hit) {
-        draggingTransform = true;
-        activeHitDepth = hit.depth;
-        store.pushUndo();
+    if (store.mode === 'object' && store.scene.activeObjectId) {
+      const actObj = store.getActiveObject();
+      if (actObj && !actObj.locked) {
+        const hitAxis = pickGizmoAxisAtScreen(sx, sy, rect.width, rect.height, actObj.location, store.camera);
+        if (hitAxis) {
+          if (store.tool === 'select') store.tool = 'move';
+          store.activeGizmoAxis = hitAxis;
+          draggingTransform = true;
+          activeHitDepth = Math.max(1.5, store.camera.distance);
+          store.pushUndo();
+          draw();
+          return;
+        }
+      }
+      if (store.tool !== 'select') {
+        const hit = pickSceneAtScreen(sx, sy, rect.width, rect.height, store.scene, store.camera, store.scene.activeObjectId);
+        if (hit) {
+          draggingTransform = true;
+          activeHitDepth = hit.depth;
+          store.pushUndo();
+        }
       }
     }
   });
@@ -338,6 +385,7 @@ export function mountViewport(
       store.commitLiveChange();
     }
     brushOverlay = null;
+    store.activeGizmoAxis = null;
     draggingTransform = false;
     draggingEditTransform = false;
     sculptingStroke = false;

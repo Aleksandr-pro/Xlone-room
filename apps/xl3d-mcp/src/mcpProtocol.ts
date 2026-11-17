@@ -102,7 +102,7 @@ export const XL3D_MCP_TOOLS: McpToolDef[] = [
         target: { type: 'string', description: 'Object name or id (defaults to active object)' },
         op: {
           type: 'string',
-          enum: ['subdivide', 'extrude', 'inset', 'bevel', 'poke', 'flip_normals', 'triangulate', 'tris_to_quads', 'merge', 'looptools_circle', 'uv_unwrap', 'shade_smooth'],
+          enum: ['subdivide', 'extrude', 'inset', 'bevel', 'poke', 'flip_normals', 'triangulate', 'tris_to_quads', 'merge', 'bridge_fill', 'dissolve', 'shrink_fatten', 'spin', 'duplicate_faces', 'looptools_circle', 'uv_unwrap', 'shade_smooth'],
         },
         amount: { type: 'number', description: 'Distance/thickness/offset for extrude, inset, bevel' },
       },
@@ -118,11 +118,26 @@ export const XL3D_MCP_TOOLS: McpToolDef[] = [
         target: { type: 'string', description: 'Object name or id (defaults to active object)' },
         type: {
           type: 'string',
-          enum: ['subsurf', 'mirror', 'solidify', 'bevel', 'array', 'boolean', 'decimate', 'wireframe', 'displace', 'cast'],
+          enum: ['subsurf', 'mirror', 'solidify', 'bevel', 'array', 'boolean', 'decimate', 'wireframe', 'displace', 'cast', 'screw', 'weld'],
         },
         params: { type: 'object', description: 'Optional modifier parameters e.g. { levels: 2 }' },
       },
       required: ['type'],
+    },
+  },
+  {
+    name: 'object_action',
+    description: 'Run Blender Object-level action: duplicate, apply_transforms (Ctrl+A), origin_to_geometry, join (Ctrl+J), convert_to_mesh (Curve/Text->Mesh), or apply_modifiers.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Object name or id (defaults to active object)' },
+        action: {
+          type: 'string',
+          enum: ['duplicate', 'apply_transforms', 'origin_to_geometry', 'join', 'convert_to_mesh', 'apply_modifiers'],
+        },
+      },
+      required: ['action'],
     },
   },
   {
