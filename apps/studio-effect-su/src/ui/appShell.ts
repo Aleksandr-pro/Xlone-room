@@ -11,11 +11,11 @@ export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
     <div class="ae-app">
       <header class="ae-topbar">
-        <div class="brand">
+        <div class="brand" data-top-hub style="cursor:pointer" title="Xlone-room Hub & APK Info">
           <span class="brand-logo">SU</span>
           <div class="brand-text">
             <strong>StudioEffect(SU)</strong>
-            <small>Xlone-room • AE Mobile</small>
+            <small>Xlone-room • v1.2</small>
           </div>
         </div>
         <div class="topbar-actions">
@@ -67,6 +67,7 @@ export function mountApp(root: HTMLElement): void {
 
   undoBtn.addEventListener('click', () => store.undo());
   redoBtn.addEventListener('click', () => store.redo());
+  root.querySelector('[data-top-hub]')?.addEventListener('click', () => modals.openXloneHub());
   root.querySelector('[data-top-presets]')?.addEventListener('click', () => modals.openProjectsAndPresets());
   root.querySelector('[data-top-comp]')?.addEventListener('click', () => modals.openCompSettings());
   root.querySelector('[data-top-export]')?.addEventListener('click', () => modals.openExport());

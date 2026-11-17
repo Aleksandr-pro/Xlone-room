@@ -42,3 +42,10 @@
 - [x] Вложенные композиции (`Pre-Compose` + переключатель композиций проекта)
 - [x] Новые 5 эффектов (`Radial Zoom Blur`, `Directional Blur`, `Wave Warp`, `Tint / Colorize`, `Exposure & Gamma`) + сортировка стека эффектов
 - [x] Пресеты анимации текста (`Typewriter`, `Pop In`, `Slide Up`, `Neon Pulse`), магнитный Snap к центру и зум вьюпорта
+
+## Фаза 6: 3D-слои, монтаж на таймлайне, хромакей и микс звука в экспорте (v1.2)
+- [x] Переключатель `3D Layer` (`Z Depth`, `Rotate X`, `Rotate Y` с перспективной матрицей)
+- [x] Разрезание слоёв по CTI (`Split Layer`), маркеры таймлайна (`+ M`) и `Time Speed`
+- [x] 4 новых эффекта (всего 20 VFX): `Color Key (Green Screen)`, `Symmetry / Kaleido`, `Posterize`, `Halftone Dots`
+- [x] Сведение аудиодорожек при экспорте видео и 4-й демо-пресет `3D Card & Beat (9:16)`
+- [x] Окно `Xlone-room Hub` внутри приложения со статистикой и ссылкой на обновления APK

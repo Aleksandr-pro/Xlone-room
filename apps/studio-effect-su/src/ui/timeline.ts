@@ -3,7 +3,7 @@ import type { Layer, TransformPropKey } from '../core/types';
 import { store } from '../state/store';
 import { ICONS } from './icons';
 
-const PROP_ROWS: Array<{ key: TransformPropKey; label: string; unit: string }> = [
+const BASE_PROP_ROWS: Array<{ key: TransformPropKey; label: string; unit: string }> = [
   { key: 'x', label: 'Position X', unit: 'px' },
   { key: 'y', label: 'Position Y', unit: 'px' },
   { key: 'scaleX', label: 'Scale X', unit: '%' },
@@ -12,6 +12,12 @@ const PROP_ROWS: Array<{ key: TransformPropKey; label: string; unit: string }> =
   { key: 'opacity', label: 'Opacity', unit: '%' },
   { key: 'anchorX', label: 'Anchor X', unit: 'px' },
   { key: 'anchorY', label: 'Anchor Y', unit: 'px' },
+];
+
+const EXTRA_3D_ROWS: Array<{ key: TransformPropKey; label: string; unit: string }> = [
+  { key: 'z', label: 'Z Depth', unit: 'px' },
+  { key: 'rotateX', label: 'Rotate X', unit: '°' },
+  { key: 'rotateY', label: 'Rotate Y', unit: '°' },
 ];
 
 function typeTag(layer: Layer): string {
@@ -79,6 +85,11 @@ export function mountTimeline(
             ${hasMask ? `<span class="tl-mini-pill mask" title="Mask Active">M</span>` : ''}
             ${hasMatte ? `<span class="tl-mini-pill matte" title="Track Matte">MAT</span>` : ''}
             ${fxCount > 0 ? `<span class="tl-fx-pill" title="Active Effects">fx${fxCount}</span>` : ''}
+            ${
+              layer.type !== 'audio' && layer.type !== 'adjustment'
+                ? `<button class="tl-flag-btn d3 ${layer.is3D ? 'on' : ''}" data-toggle-3d="${layer.id}" title="3D Layer">3D</button>`
+                : ''
+            }
             <button class="tl-flag-btn ${layer.visible ? 'on' : ''}" data-toggle-vis="${layer.id}" title="Visibility">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
             <button class="tl-flag-btn solo ${layer.solo ? 'on' : ''}" data-toggle-solo="${layer.id}" title="Solo">S</button>
             <button class="tl-flag-btn ${layer.locked ? 'on' : ''}" data-toggle-lock="${layer.id}" title="Lock">${layer.locked ? ICONS.lock : ICONS.unlock}</button>
@@ -107,8 +118,9 @@ export function mountTimeline(
       `;
 
       if (layer.expanded) {
-        for (const row of PROP_ROWS) {
-          const prop = layer.transform[row.key];
+        const rows = layer.is3D ? [...BASE_PROP_ROWS, ...EXTRA_3D_ROWS] : BASE_PROP_ROWS;
+        for (const row of rows) {
+          const prop = layer.transform[row.key] ?? { value: 0, keyframes: [] };
           const hasKfs = prop.keyframes.length > 0;
           const atKf = prop.keyframes.some((k) => Math.abs(k.time - state.currentTime) <= snapTol);
           const curVal = evaluateProp(prop, state.currentTime, layerIndex, comp, `${layer.id}:${row.key}`);
@@ -141,11 +153,21 @@ export function mountTimeline(
     });
 
     const ctiLeft = Math.round(state.currentTime * zoom);
+    const markersHtml = (comp.markers ?? [])
+      .map(
+        (m) =>
+          `<button class="tl-marker" style="left:${Math.round(m.time * zoom)}px" data-marker-jump="${m.id}:${m.time}" title="${escapeHtml(m.label)} (${m.time}s) — dbl-click to remove">${escapeHtml(m.label)}</button>`
+      )
+      .join('');
 
     container.innerHTML = `
       <div class="tl-shell">
         <div class="tl-toolbar">
-          <button class="btn-primary btn-sm" data-tl-add>+ Layer</button>
+          <div class="tl-toolbar-group">
+            <button class="btn-primary btn-sm" data-tl-add>+ Layer</button>
+            <button class="btn-ghost btn-sm" data-tl-split title="Split Selected Layer at CTI">Split</button>
+            <button class="btn-ghost btn-sm" data-tl-marker title="Add Timeline Marker">+ M</button>
+          </div>
           <div class="tl-toolbar-group">
             <button class="btn-ghost btn-sm" data-tl-zoom="-25">−</button>
             <span class="tl-zoom-label">Zoom</span>
@@ -166,6 +188,7 @@ export function mountTimeline(
           <div class="tl-right" data-tl-right>
             <div class="tl-ruler" data-tl-ruler style="width:${trackWidth}px">
               ${ticksHtml}
+              ${markersHtml}
               <div class="tl-cti-head" style="left:${ctiLeft}px" data-cti-head></div>
             </div>
             <div class="tl-tracks" data-tl-tracks style="width:${trackWidth}px">
@@ -196,6 +219,36 @@ export function mountTimeline(
       callbacks.onOpenAddLayer();
     });
 
+    container.querySelector('[data-tl-split]')?.addEventListener('click', () => {
+      const sel = store.getSelectedLayer();
+      if (sel) store.splitLayerAtCurrentTime(sel.id);
+    });
+
+    container.querySelector('[data-tl-marker]')?.addEventListener('click', () => {
+      store.addMarkerAtCurrentTime();
+    });
+
+    container.querySelectorAll<HTMLElement>('[data-marker-jump]').forEach((mk) => {
+      mk.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const [, tStr] = mk.dataset.markerJump!.split(':');
+        store.stopPlay();
+        store.setTime(Number(tStr));
+      });
+      mk.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const [id] = mk.dataset.markerJump!.split(':');
+        store.deleteMarker(id);
+      });
+    });
+
+    container.querySelectorAll<HTMLElement>('[data-toggle-3d]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        store.toggle3D(btn.dataset.toggle3d!);
+      });
+    });
+
     container.querySelectorAll<HTMLElement>('[data-tl-zoom]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const delta = Number(btn.dataset.tlZoom);
@@ -212,7 +265,7 @@ export function mountTimeline(
         const times = new Set<number>();
         if (layer) {
           for (const k of Object.keys(layer.transform) as TransformPropKey[]) {
-            for (const kf of layer.transform[k].keyframes) times.add(kf.time);
+            for (const kf of layer.transform[k]?.keyframes ?? []) times.add(kf.time);
           }
         }
         const sorted = Array.from(times).sort((a, b) => a - b);
@@ -379,7 +432,7 @@ export function mountTimeline(
         const [layerId, propKey, kfId] = dm.dataset.kfDrag!.split(':') as [string, TransformPropKey, string];
         const comp = store.getActiveComp();
         const layer = comp.layers.find((l) => l.id === layerId);
-        const kfObj = layer?.transform[propKey].keyframes.find((k) => k.id === kfId);
+        const kfObj = layer?.transform[propKey]?.keyframes.find((k) => k.id === kfId);
         if (!kfObj) return;
 
         store.selectKeyframe({ layerId, propKey, kfId });
@@ -400,7 +453,7 @@ export function mountTimeline(
           }
           const nextT = Math.max(0, Math.min(comp.duration, Number((origTime + dt).toFixed(3))));
           kfObj.time = nextT;
-          layer!.transform[propKey].keyframes.sort((a, b) => a.time - b.time);
+          layer!.transform[propKey]?.keyframes.sort((a, b) => a.time - b.time);
           store.setTime(nextT);
           dm.style.left = `${Math.round(nextT * zoom)}px`;
         };

@@ -162,6 +162,44 @@ export const EFFECT_CATALOG: EffectDefinition[] = [
       { key: 'size', label: 'Block Size', min: 2, max: 64, step: 1, defaultValue: 10, unit: 'px' },
     ],
   },
+  {
+    type: 'chromaKey',
+    name: 'Color Key (Green Screen)',
+    category: 'Keying',
+    description: 'Удаление зелёного/синего фона (хромакей)',
+    params: [
+      { key: 'hue', label: 'Key Hue (120=Green)', min: 0, max: 360, step: 5, defaultValue: 120, unit: '°' },
+      { key: 'tolerance', label: 'Tolerance', min: 5, max: 120, step: 2, defaultValue: 45, unit: '' },
+      { key: 'softness', label: 'Edge Softness', min: 0, max: 60, step: 2, defaultValue: 18, unit: '' },
+    ],
+  },
+  {
+    type: 'mirror',
+    name: 'Symmetry / Kaleido',
+    category: 'Distort',
+    description: 'Зеркальная симметрия (2x / 4x калейдоскоп)',
+    params: [
+      { key: 'mode', label: 'Mode (1=X, 2=Y, 3=4-Way)', min: 1, max: 3, step: 1, defaultValue: 3, unit: '' },
+    ],
+  },
+  {
+    type: 'posterize',
+    name: 'Posterize',
+    category: 'Stylize',
+    description: 'Стилизация палитры под постер/аниме',
+    params: [
+      { key: 'levels', label: 'Color Levels', min: 2, max: 16, step: 1, defaultValue: 5, unit: '' },
+    ],
+  },
+  {
+    type: 'halftone',
+    name: 'Halftone Dots',
+    category: 'Stylize',
+    description: 'Комикс-растр из точек по яркости',
+    params: [
+      { key: 'dotSize', label: 'Cell Size', min: 4, max: 28, step: 1, defaultValue: 10, unit: 'px' },
+    ],
+  },
 ];
 
 export function getEffectDef(type: EffectType): EffectDefinition {

@@ -115,6 +115,42 @@ export async function exportCompositionVideo(
     candidateMimes.find((m) => MediaRecorder.isTypeSupported(m)) ?? 'video/webm';
 
   const stream = canvas.captureStream(fps);
+
+  // Optional audio track mixing when unmuted audio layers exist
+  let audioCtx: AudioContext | null = null;
+  const audioSources: AudioBufferSourceNode[] = [];
+  const audioLayers = comp.layers.filter(
+    (l) => l.type === 'audio' && l.visible && l.audioData && l.audioData.volume > 0
+  );
+  if (audioLayers.length > 0 && typeof AudioContext !== 'undefined') {
+    try {
+      audioCtx = new AudioContext();
+      const dest = audioCtx.createMediaStreamDestination();
+      for (const al of audioLayers) {
+        const resp = await fetch(al.audioData!.src);
+        const arr = await resp.arrayBuffer();
+        const decoded = await audioCtx.decodeAudioData(arr);
+        const srcNode = audioCtx.createBufferSource();
+        srcNode.buffer = decoded;
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = al.audioData!.volume / 100;
+        srcNode.connect(gainNode);
+        gainNode.connect(dest);
+        const delay = Math.max(0, al.inPoint);
+        const offset = Math.max(0, al.startTime);
+        const dur = Math.max(0.05, al.outPoint - al.inPoint);
+        srcNode.start(audioCtx.currentTime + delay, offset, dur);
+        audioSources.push(srcNode);
+      }
+      for (const track of dest.stream.getAudioTracks()) {
+        stream.addTrack(track);
+      }
+    } catch {
+      if (audioCtx) void audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+  }
+
   const chunks: BlobPart[] = [];
   const recorder = new MediaRecorder(stream, {
     mimeType: supportedMime,
@@ -129,6 +165,14 @@ export async function exportCompositionVideo(
 
   const stopPromise = new Promise<Blob>((resolve, reject) => {
     recorder.onstop = () => {
+      for (const s of audioSources) {
+        try {
+          s.stop();
+        } catch {
+          // ignore
+        }
+      }
+      if (audioCtx) void audioCtx.close().catch(() => {});
       resolve(new Blob(chunks, { type: supportedMime }));
     };
     recorder.onerror = () => reject(new Error('Ошибка записи видео'));

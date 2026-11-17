@@ -46,9 +46,12 @@ export function createDefaultTransform(cx: number, cy: number): TransformProps {
     anchorY: prop(0),
     x: prop(cx),
     y: prop(cy),
+    z: prop(0),
     scaleX: prop(100),
     scaleY: prop(100),
     rotation: prop(0),
+    rotateX: prop(0),
+    rotateY: prop(0),
     opacity: prop(100),
   };
 }
@@ -81,6 +84,8 @@ export function createLayer(
     solo: false,
     locked: false,
     expanded: false,
+    is3D: false,
+    speed: 1,
     inPoint: 0,
     outPoint: comp.duration,
     startTime: 0,

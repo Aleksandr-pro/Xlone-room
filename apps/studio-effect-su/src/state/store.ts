@@ -427,7 +427,9 @@ class StudioStore {
     copy.id = uid('layer');
     copy.name = `${copy.name} Copy`;
     for (const key of Object.keys(copy.transform) as TransformPropKey[]) {
-      copy.transform[key].keyframes = copy.transform[key].keyframes.map((k) => ({
+      const p = copy.transform[key];
+      if (!p) continue;
+      p.keyframes = p.keyframes.map((k) => ({
         ...k,
         id: uid('kf'),
       }));
@@ -458,6 +460,68 @@ class StudioStore {
     if (!layer) return;
     if (!skipUndo) this.snapshotForUndo();
     updater(layer);
+    this.emit();
+  }
+
+  toggle3D(layerId: string): void {
+    this.updateLayer(layerId, (l) => {
+      l.is3D = !l.is3D;
+      if (!l.transform.z) l.transform.z = prop(0);
+      if (!l.transform.rotateX) l.transform.rotateX = prop(0);
+      if (!l.transform.rotateY) l.transform.rotateY = prop(0);
+    });
+  }
+
+  splitLayerAtCurrentTime(layerId: string): void {
+    const comp = this.getActiveComp();
+    const idx = comp.layers.findIndex((l) => l.id === layerId);
+    if (idx < 0) return;
+    const src = comp.layers[idx];
+    const t = Number(this.state.currentTime.toFixed(2));
+    if (t <= src.inPoint + 0.05 || t >= src.outPoint - 0.05) return;
+
+    this.snapshotForUndo();
+    const tail = structuredClone(src);
+    tail.id = uid('layer');
+    tail.name = `${src.name} [2]`;
+    tail.inPoint = t;
+    tail.startTime = src.startTime + (t - src.inPoint) * (src.speed ?? 1);
+    for (const key of Object.keys(tail.transform) as TransformPropKey[]) {
+      const p = tail.transform[key];
+      if (!p) continue;
+      p.keyframes = p.keyframes.map((k) => ({ ...k, id: uid('kf') }));
+    }
+    for (const fx of tail.effects) {
+      fx.id = uid('fx');
+    }
+
+    src.outPoint = t;
+    comp.layers.splice(idx, 0, tail);
+    this.state.selectedLayerId = tail.id;
+    this.emit();
+  }
+
+  addMarkerAtCurrentTime(label?: string): void {
+    const comp = this.getActiveComp();
+    this.snapshotForUndo();
+    if (!comp.markers) comp.markers = [];
+    const t = Number(this.state.currentTime.toFixed(2));
+    const idx = comp.markers.length + 1;
+    comp.markers.push({
+      id: uid('mk'),
+      time: t,
+      label: label?.trim() || `M${idx}`,
+      color: '#22d3ee',
+    });
+    comp.markers.sort((a, b) => a.time - b.time);
+    this.emit();
+  }
+
+  deleteMarker(markerId: string): void {
+    const comp = this.getActiveComp();
+    if (!comp.markers) return;
+    this.snapshotForUndo();
+    comp.markers = comp.markers.filter((m) => m.id !== markerId);
     this.emit();
   }
 
@@ -559,7 +623,7 @@ class StudioStore {
       const val = Number((baseValue + (env[i] / 100) * multiplier).toFixed(1));
       newKfs.push(kf(Number(t.toFixed(3)), val, 'linear'));
     }
-    targetLayer.transform[propKey].keyframes = newKfs;
+    this.ensureTransformProp(targetLayer, propKey).keyframes = newKfs;
     targetLayer.expanded = true;
     this.state.selectedLayerId = targetLayer.id;
     this.state.selectedPropKey = propKey;
@@ -567,11 +631,19 @@ class StudioStore {
     return newKfs.length;
   }
 
+  private ensureTransformProp(layer: Layer, propKey: TransformPropKey): AnimatableProp {
+    if (!layer.transform[propKey]) {
+      layer.transform[propKey] = prop(0);
+    }
+    return layer.transform[propKey]!;
+  }
+
   getEvaluatedProp(layer: Layer, propKey: TransformPropKey): number {
     const comp = this.getActiveComp();
     const idx = comp.layers.findIndex((l) => l.id === layer.id);
+    const p = layer.transform[propKey] ?? prop(0);
     return evaluateProp(
-      layer.transform[propKey],
+      p,
       this.state.currentTime,
       Math.max(0, idx),
       comp,
@@ -590,7 +662,7 @@ class StudioStore {
     if (!layer || layer.locked) return;
     if (!options.skipUndo) this.snapshotForUndo();
 
-    const p = layer.transform[propKey];
+    const p = this.ensureTransformProp(layer, propKey);
     const t = this.state.currentTime;
     const snapTol = 0.5 / comp.fps;
 
@@ -617,7 +689,7 @@ class StudioStore {
     if (!layer) return;
     this.snapshotForUndo();
 
-    const p = layer.transform[propKey];
+    const p = this.ensureTransformProp(layer, propKey);
     if (p.keyframes.length > 0) {
       p.value = evaluateKeyframes(p, this.state.currentTime);
       p.keyframes = [];
@@ -643,7 +715,7 @@ class StudioStore {
     if (!layer) return;
     this.snapshotForUndo();
 
-    const p = layer.transform[propKey];
+    const p = this.ensureTransformProp(layer, propKey);
     const t = this.state.currentTime;
     const snapTol = 0.5 / comp.fps;
     const idx = p.keyframes.findIndex((k) => Math.abs(k.time - t) <= snapTol);
@@ -669,7 +741,7 @@ class StudioStore {
     const layer = comp.layers.find((l) => l.id === layerId);
     if (!layer) return;
     this.snapshotForUndo();
-    const p = layer.transform[propKey];
+    const p = this.ensureTransformProp(layer, propKey);
     p.keyframes = p.keyframes.filter((k) => k.id !== kfId);
     if (this.state.selectedKeyframe?.kfId === kfId) {
       this.state.selectedKeyframe = null;
@@ -688,7 +760,7 @@ class StudioStore {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === layerId);
     if (!layer) return;
-    const keyframe = layer.transform[propKey].keyframes.find((k) => k.id === kfId);
+    const keyframe = this.ensureTransformProp(layer, propKey).keyframes.find((k) => k.id === kfId);
     if (!keyframe) return;
     if (!skipUndo) this.snapshotForUndo();
     keyframe.easing = easing;
@@ -701,7 +773,7 @@ class StudioStore {
     const layer = comp.layers.find((l) => l.id === layerId);
     if (!layer) return;
     this.snapshotForUndo();
-    layer.transform[propKey].expression = expression.trim() || undefined;
+    this.ensureTransformProp(layer, propKey).expression = expression.trim() || undefined;
     this.emit();
   }
 
@@ -802,7 +874,7 @@ class StudioStore {
     const comp = this.getActiveComp();
     const layer = comp.layers.find((l) => l.id === ref.layerId);
     if (!layer) return null;
-    return layer.transform[ref.propKey].keyframes.find((k) => k.id === ref.kfId) ?? null;
+    return layer.transform[ref.propKey]?.keyframes.find((k) => k.id === ref.kfId) ?? null;
   }
 }
 
