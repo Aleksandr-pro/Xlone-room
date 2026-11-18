@@ -34,34 +34,29 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var timeScale = 1.0
     private var canvasExpanded = false
     private var pvGraphMode = false
-    private var activeTab = 0 // 0=Controls, 1=Graphs, 2=Journal/Theory, 3=Rooms/Topics
+    private var activeTab = 0 // 0=Опыт, 1=Приборы, 2=Объяснения, 3=Лабораторные
+    private var selectedBranchFilter: PhysicsBranch? = null
 
-    // Latest pedagogical explanation banner override (shows last change for a few seconds or until phase updates)
     private var lastExplanationTitle = ""
     private var lastExplanationDetail = ""
     private var lastExplanationUntilMs = 0L
 
-    // UI references
     private lateinit var rootLayout: LinearLayout
     private lateinit var roomSelectorBtn: TextView
     private lateinit var playPauseBtn: TextView
     private lateinit var canvasContainer: FrameLayout
     private lateinit var canvasView: LabCanvasView
-    private lateinit var timeBadge: TextView
-    private lateinit var speedBadge: TextView
+    private lateinit var timeSpeedBadge: TextView
     private lateinit var vectorsBtn: TextView
-    private lateinit var gridBtn: TextView
     private lateinit var expandBtn: TextView
 
     private lateinit var liveBannerTitle: TextView
     private lateinit var liveBannerDetail: TextView
-    private lateinit var liveBannerFormula: TextView
 
     private lateinit var tabContentScroll: ScrollView
     private lateinit var tabContentBox: LinearLayout
     private val navTabViews = mutableListOf<LinearLayout>()
 
-    // Active tab live updaters
     private val paramHandles = mutableMapOf<String, ParamControlHandle>()
     private var oscilloscopeView: OscilloscopeView? = null
     private val liveMetricValueViews = mutableListOf<TextView>()
@@ -129,7 +124,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
-        // 1. Top Header Bar
+        // 1. Lightweight Top Bar
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -143,41 +138,36 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
-            background = roundedRect(UiTheme.BG_CARD_ALT, 16f, this@MainActivity, UiTheme.STROKE, 1f)
-            setPadding(dp(11), dp(6), dp(11), dp(6))
+            background = roundedRect(UiTheme.BG_CARD, 18f, this@MainActivity)
+            setPadding(dp(12), dp(7), dp(12), dp(7))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginEnd = dp(8)
             }
             setOnClickListener { switchTab(3) }
         }
 
-        playPauseBtn = makePillButton(this, "⏸", UiTheme.ACCENT, 0xFF0A0F18.toInt(), UiTheme.ACCENT, 14f, 12f, 6f) {
+        playPauseBtn = makePillButton(this, "⏸", UiTheme.ACCENT, 0xFF0A0F18.toInt(), 0, 14f, 12f, 6f) {
             isPlaying = !isPlaying
             updatePlayButtonUi()
         }
-        val stepBtn = makePillButton(this, "+1", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 12.5f, 10f, 6f) {
-            isPlaying = false
-            updatePlayButtonUi()
-            engine.step(0.02, activeRoom.params)
-            flushPendingEngineEvents()
-            canvasView.invalidate()
-            refreshLiveTelemetryUi(force = true)
-        }
-        val resetBtn = makePillButton(this, "↺", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 14f, 11f, 6f) {
+        val resetBtn = makePillButton(this, "↺", UiTheme.BG_CARD, UiTheme.TEXT_PRIMARY, 0, 14f, 11f, 6f) {
             engine.reset(activeRoom.topic, activeRoom.params)
             canvasView.invalidate()
             refreshLiveTelemetryUi(force = true)
         }
+        val quickSnapBtn = makePillButton(this, "📌", UiTheme.BG_CARD, UiTheme.YELLOW, 0, 13.5f, 10f, 6f) {
+            captureMeasurementSnapshot()
+        }
 
         header.addView(roomSelectorBtn)
         header.addView(playPauseBtn, wrapLp(marginEnd = 5))
-        header.addView(stepBtn, wrapLp(marginEnd = 5))
-        header.addView(resetBtn)
+        header.addView(resetBtn, wrapLp(marginEnd = 5))
+        header.addView(quickSnapBtn)
         rootLayout.addView(header)
 
-        // 2. Interactive Simulation Canvas Container
+        // 2. Simulation Canvas (clean & spacious)
         val screenH = resources.displayMetrics.heightPixels
-        val defaultCanvasH = (screenH * 0.34f).toInt().coerceAtLeast(dp(220))
+        val defaultCanvasH = (screenH * 0.35f).toInt().coerceAtLeast(dp(225))
         canvasContainer = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, defaultCanvasH)
         }
@@ -190,31 +180,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         canvasContainer.addView(canvasView)
 
-        // Top-left floating time & speed badges
-        val hudLeft = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.START
-            ).apply { setMargins(dp(8), dp(8), 0, 0) }
-        }
-        timeBadge = makePillButton(this, "t = 0.00 с", 0xCC161C29.toInt(), UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 11f, 9f, 4f) {}
-        speedBadge = makePillButton(this, "1×", 0xCC161C29.toInt(), UiTheme.ACCENT, UiTheme.STROKE, 11f, 9f, 4f) {
+        // Single compact time/speed chip top-left
+        timeSpeedBadge = makePillButton(this, "t = 0.00 с · 1×", 0xAA131A28.toInt(), UiTheme.TEXT_PRIMARY, 0, 11f, 9f, 4f) {
             timeScale = when (timeScale) {
                 1.0 -> 0.5
                 0.5 -> 0.25
                 0.25 -> 2.0
                 else -> 1.0
             }
-            speedBadge.text = "${if (timeScale == 1.0 || timeScale == 2.0) timeScale.toInt().toString() else timeScale}×"
+            refreshLiveTelemetryUi(force = true)
         }
-        hudLeft.addView(timeBadge, wrapLp(marginEnd = 5))
-        hudLeft.addView(speedBadge)
-        canvasContainer.addView(hudLeft)
+        canvasContainer.addView(timeSpeedBadge, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP or Gravity.START
+        ).apply { setMargins(dp(8), dp(8), 0, 0) })
 
-        // Top-right floating toggles (Vectors, Grid, Expand)
+        // Two compact icon buttons top-right
         val hudRight = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -224,39 +206,31 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 Gravity.TOP or Gravity.END
             ).apply { setMargins(0, dp(8), dp(8), 0) }
         }
-        vectorsBtn = makePillButton(this, "Векторы", 0xCC1E3A5F.toInt(), UiTheme.ACCENT, UiTheme.ACCENT, 11f, 9f, 4f) {
+        vectorsBtn = makePillButton(this, "Векторы", 0xAA1E3A5F.toInt(), UiTheme.ACCENT, 0, 11f, 9f, 4f) {
             canvasView.showVectors = !canvasView.showVectors
             vectorsBtn.background = roundedRect(
-                if (canvasView.showVectors) 0xCC1E3A5F.toInt() else 0xCC161C29.toInt(),
-                16f, this, if (canvasView.showVectors) UiTheme.ACCENT else UiTheme.STROKE, 1f
+                if (canvasView.showVectors) 0xAA1E3A5F.toInt() else 0xAA131A28.toInt(),
+                16f, this
             )
+            vectorsBtn.setTextColor(if (canvasView.showVectors) UiTheme.ACCENT else UiTheme.TEXT_MUTED)
             canvasView.invalidate()
         }
-        gridBtn = makePillButton(this, "Сетка", 0xCC1E3A5F.toInt(), UiTheme.ACCENT, UiTheme.ACCENT, 11f, 9f, 4f) {
-            canvasView.showGrid = !canvasView.showGrid
-            gridBtn.background = roundedRect(
-                if (canvasView.showGrid) 0xCC1E3A5F.toInt() else 0xCC161C29.toInt(),
-                16f, this, if (canvasView.showGrid) UiTheme.ACCENT else UiTheme.STROKE, 1f
-            )
-            canvasView.invalidate()
-        }
-        expandBtn = makePillButton(this, "⛶", 0xCC161C29.toInt(), UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 12f, 9f, 4f) {
+        expandBtn = makePillButton(this, "⛶", 0xAA131A28.toInt(), UiTheme.TEXT_PRIMARY, 0, 12f, 9f, 4f) {
             canvasExpanded = !canvasExpanded
-            val targetH = if (canvasExpanded) (screenH * 0.62f).toInt() else defaultCanvasH
+            val targetH = if (canvasExpanded) (screenH * 0.60f).toInt() else defaultCanvasH
             canvasContainer.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, targetH)
         }
         hudRight.addView(vectorsBtn, wrapLp(marginEnd = 5))
-        hudRight.addView(gridBtn, wrapLp(marginEnd = 5))
         hudRight.addView(expandBtn)
         canvasContainer.addView(hudRight)
 
         rootLayout.addView(canvasContainer)
 
-        // 3. Live Physical Narrative Strip (always visible right under the simulation!)
+        // 3. Clean 2-line Narrative Banner
         val bannerCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(UiTheme.BG_SURFACE)
-            setPadding(dp(12), dp(7), dp(12), dp(8))
+            setPadding(dp(14), dp(8), dp(14), dp(9))
             setOnClickListener { switchTab(2) }
         }
         val bannerTop = LinearLayout(this).apply {
@@ -264,7 +238,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             gravity = Gravity.CENTER_VERTICAL
         }
         liveBannerTitle = TextView(this).apply {
-            textSize = 12.5f
+            textSize = 13f
             setTextColor(UiTheme.ACCENT)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             maxLines = 1
@@ -272,7 +246,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val journalHint = TextView(this).apply {
-            text = "Журнал →"
+            text = "Подробнее →"
             textSize = 11f
             setTextColor(UiTheme.TEXT_MUTED)
         }
@@ -280,29 +254,15 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         bannerTop.addView(journalHint)
 
         liveBannerDetail = TextView(this).apply {
-            textSize = 12f
+            textSize = 12.2f
             setTextColor(UiTheme.TEXT_PRIMARY)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
-            setPadding(0, dp(2), 0, dp(2))
-        }
-        liveBannerFormula = TextView(this).apply {
-            textSize = 11.5f
-            setTextColor(UiTheme.YELLOW)
-            typeface = Typeface.MONOSPACE
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(2), 0, 0)
         }
         bannerCard.addView(bannerTop)
         bannerCard.addView(liveBannerDetail)
-        bannerCard.addView(liveBannerFormula)
         rootLayout.addView(bannerCard)
-
-        // Thin divider
-        rootLayout.addView(View(this).apply {
-            setBackgroundColor(UiTheme.STROKE)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
-        })
 
         // 4. Scrollable Tab Body
         tabContentScroll = ScrollView(this).apply {
@@ -311,23 +271,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         tabContentBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(16))
+            setPadding(dp(12), dp(10), dp(12), dp(18))
         }
         tabContentScroll.addView(tabContentBox)
         rootLayout.addView(tabContentScroll)
 
-        // 5. Phone Bottom Navigation Bar
+        // 5. Clean Bottom Navigation
         val bottomNav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(UiTheme.BG_SURFACE)
-            setPadding(dp(4), dp(5), dp(4), dp(6))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58))
+            setPadding(dp(6), dp(5), dp(6), dp(6))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
         }
         val tabs = listOf(
-            "🎛" to "Параметры",
-            "📈" to "Графики",
-            "📖" to "Процессы",
-            "🧪" to "Комнаты"
+            "🎛" to "Опыт",
+            "📊" to "Приборы",
+            "📖" to "Объяснения",
+            "🧪" to "Лабораторные"
         )
         navTabViews.clear()
         tabs.forEachIndexed { idx, (icon, label) ->
@@ -339,7 +299,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
             val ic = TextView(this).apply {
                 text = icon
-                textSize = 17f
+                textSize = 16.5f
                 gravity = Gravity.CENTER
             }
             val lb = TextView(this).apply {
@@ -360,7 +320,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         playPauseBtn.text = if (isPlaying) "⏸" else "▶"
         playPauseBtn.background = roundedRect(
             if (isPlaying) UiTheme.ACCENT else UiTheme.GREEN,
-            18f, this, if (isPlaying) UiTheme.ACCENT else UiTheme.GREEN, 1f
+            18f, this
         )
         canvasView.isPlaying = isPlaying
     }
@@ -374,7 +334,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun renderBottomNavHighlight() {
         navTabViews.forEachIndexed { idx, box ->
             val active = idx == activeTab
-            box.background = if (active) roundedRect(UiTheme.ACCENT_SOFT, 12f, this) else null
+            box.background = if (active) roundedRect(UiTheme.ACCENT_SOFT, 14f, this) else null
             val labelTv = box.getChildAt(1) as? TextView
             labelTv?.setTextColor(if (active) UiTheme.ACCENT else UiTheme.TEXT_MUTED)
         }
@@ -398,7 +358,6 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun handleDirectCanvasParam(key: String, oldVal: Double, newVal: Double, commit: Boolean) {
         activeRoom.params[key] = newVal
         engine.syncParamsLive(activeRoom.params, key, oldVal, newVal)
-        // Sync all sliders (e.g. adiabatic volume drag also changes temperature!)
         for ((pKey, handle) in paramHandles) {
             activeRoom.params[pKey]?.let { handle.syncValue(it) }
         }
@@ -483,7 +442,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         )
         activeRoom.updatedAt = now
         repo.saveRooms(rooms, activeRoom.id)
-        Toast.makeText(this, "Замер №${row.index} записан в таблицу", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Замер №${row.index} сохранён", Toast.LENGTH_SHORT).show()
         if (activeTab == 1 || activeTab == 2) renderActiveTabContent()
     }
 
@@ -507,40 +466,19 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderControlsTab() {
-        // Preset chips row
+        // Quick Scenarios strip
         val presets = activeRoom.topic.presets()
         if (presets.isNotEmpty()) {
-            val lbl = TextView(this).apply {
-                text = "Быстрые сценарии:"
-                textSize = 12f
-                setTextColor(UiTheme.TEXT_MUTED)
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                setPadding(0, 0, 0, dp(5))
-            }
-            tabContentBox.addView(lbl)
-
             val hScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (preset in presets) {
-                val chip = makePillButton(this, preset.label, UiTheme.BG_CARD, UiTheme.ACCENT, UiTheme.STROKE, 12f, 11f, 6f) {
+                val chip = makePillButton(this, preset.label, UiTheme.BG_CARD, UiTheme.ACCENT, 0, 12f, 12f, 7f) {
                     val oldSummary = preset.values.entries.joinToString { "${it.key}=${PhysicsEngine.fmt(activeRoom.params[it.key] ?: 0.0, 2)}" }
-                    for ((k, v) in preset.values) {
-                        activeRoom.params[k] = v
-                    }
+                    for ((k, v) in preset.values) activeRoom.params[k] = v
                     engine.reset(activeRoom.topic, activeRoom.params)
                     val now = System.currentTimeMillis()
                     val title = "Сценарий «${preset.label}»"
-                    activeRoom.journal.add(
-                        0,
-                        ChangeLogEntry(
-                            id = "pre_$now",
-                            simTimeSec = 0.0,
-                            wallTimeMs = now,
-                            kind = "PARAM",
-                            title = title,
-                            detail = "${preset.description} (Было: $oldSummary)"
-                        )
-                    )
+                    activeRoom.journal.add(0, ChangeLogEntry("pre_$now", 0.0, now, "PARAM", title, "${preset.description} (Было: $oldSummary)"))
                     lastExplanationTitle = title
                     lastExplanationDetail = preset.description
                     lastExplanationUntilMs = now + 7000L
@@ -557,25 +495,6 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             })
         }
 
-        // Capture Measurement CTA button
-        val captureBtn = makePillButton(
-            this,
-            "📌 Зафиксировать замер в таблицу (${activeRoom.measurements.size})",
-            0xFF1D4ED8.toInt(),
-            0xFFFFFFFF.toInt(),
-            0xFF3B82F6.toInt(),
-            13.5f,
-            14f,
-            10f
-        ) {
-            captureMeasurementSnapshot()
-            renderActiveTabContent()
-        }
-        tabContentBox.addView(captureBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(10) })
-
         // Sliders, toggles & choices
         for (desc in activeRoom.topic.descriptors()) {
             val curVal = activeRoom.params[desc.key] ?: desc.defaultValue
@@ -589,7 +508,6 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                         val prev = activeRoom.params[desc.key] ?: desc.defaultValue
                         activeRoom.params[desc.key] = next
                         engine.syncParamsLive(activeRoom.params, desc.key, prev, next)
-                        // Sync linked parameters (e.g. adiabatic T/V)
                         for ((k, h) in paramHandles) {
                             if (k != desc.key) activeRoom.params[k]?.let { h.syncValue(it) }
                         }
@@ -609,6 +527,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 ParamKind.CHOICE -> buildChoiceControl(this, desc, curVal) { oldV, newV ->
                     activeRoom.params[desc.key] = newV
                     engine.syncParamsLive(activeRoom.params, desc.key, oldV, newV)
+                    for ((k, h) in paramHandles) {
+                        if (k != desc.key) activeRoom.params[k]?.let { h.syncValue(it) }
+                    }
                     recordParamChangeToJournal(desc.key, oldV, newV)
                     canvasView.invalidate()
                 }
@@ -621,10 +542,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun renderGraphsTab() {
         val snap = engine.captureTelemetry(activeRoom.params)
 
-        // 2x2 Instruments grid
+        // 2x2 Clean Digital Instruments
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val chunks = snap.metrics.chunked(2)
-        for (pair in chunks) {
+        for (pair in snap.metrics.chunked(2)) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -634,8 +554,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             pair.forEachIndexed { idx, m ->
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity, UiTheme.STROKE, 1f)
-                    setPadding(dp(12), dp(9), dp(12), dp(9))
+                    background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                         if (idx == 0 && pair.size > 1) marginEnd = dp(8)
                     }
@@ -647,9 +567,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
                 val valTv = TextView(this).apply {
                     text = "${m.value} ${m.unit}".trim()
-                    textSize = 18f
+                    textSize = 18.5f
                     setTextColor(m.accentColor.toInt())
-                    typeface = Typeface.MONOSPACE
+                    typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
                 }
                 liveMetricValueViews.add(valTv)
                 card.addView(lbl)
@@ -661,24 +581,21 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         tabContentBox.addView(grid)
 
         // Energy balance bar
-        val eTitle = TextView(this).apply {
+        tabContentBox.addView(TextView(this).apply {
             text = "Баланс энергии (E_k / E_p / Потери)"
             textSize = 12f
             setTextColor(UiTheme.TEXT_MUTED)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(0, dp(2), 0, dp(4))
-        }
-        tabContentBox.addView(eTitle)
+        })
         energyBarView = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             background = roundedRect(UiTheme.BG_CARD, 8f, this@MainActivity)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(16)).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(14)).apply {
                 bottomMargin = dp(10)
             }
         }
         tabContentBox.addView(energyBarView)
 
-        // Oscilloscope header + P-V switch for Ideal Gas
         val gHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -687,14 +604,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
         }
         gHeader.addView(TextView(this).apply {
-            text = "Осциллограф в реальном времени"
-            textSize = 13f
+            text = "Живой график"
+            textSize = 13.5f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         if (activeRoom.topic == ExperimentTopic.IDEAL_GAS) {
-            gHeader.addView(makePillButton(this, if (pvGraphMode) "Режим: P(V)" else "Режим: Временной", UiTheme.BG_CARD_ALT, UiTheme.ORANGE, UiTheme.STROKE, 11.5f, 10f, 4f) {
+            gHeader.addView(makePillButton(this, if (pvGraphMode) "График: P(V)" else "График: время", UiTheme.BG_CARD, UiTheme.ORANGE, 0, 11.5f, 10f, 5f) {
                 pvGraphMode = !pvGraphMode
                 renderActiveTabContent()
             })
@@ -709,7 +626,6 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         tabContentBox.addView(oscilloscopeView)
 
-        // Measurements Table
         val mHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -724,25 +640,25 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
-        mHeader.addView(makePillButton(this, "+ Замер", 0xFF1D4ED8.toInt(), 0xFFFFFFFF.toInt(), 0xFF3B82F6.toInt(), 11.5f, 10f, 5f) {
+        mHeader.addView(makePillButton(this, "+ Замер", UiTheme.ACCENT, 0xFF0A0F18.toInt(), 0, 12f, 11f, 5f) {
             captureMeasurementSnapshot()
         })
         tabContentBox.addView(mHeader)
 
         if (activeRoom.measurements.isEmpty()) {
             tabContentBox.addView(TextView(this).apply {
-                text = "Замеров пока нет. Нажмите «+ Замер» во время опыта, чтобы сохранить точные показания в отчёт."
+                text = "Нажмите 📌 сверху или «+ Замер», чтобы записать показания приборов в таблицу и отчёт."
                 textSize = 12.5f
                 setTextColor(UiTheme.TEXT_MUTED)
-                background = roundedRect(UiTheme.BG_CARD, 12f, this@MainActivity, UiTheme.STROKE, 1f)
+                background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity)
                 setPadding(dp(12), dp(12), dp(12), dp(12))
             })
         } else {
             for (row in activeRoom.measurements) {
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    background = roundedRect(UiTheme.BG_CARD, 12f, this@MainActivity, UiTheme.STROKE, 1f)
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity)
+                    setPadding(dp(11), dp(9), dp(11), dp(9))
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                         bottomMargin = dp(6)
                     }
@@ -773,15 +689,15 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         // 1. Live Process Explainer Card
         val procCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity, UiTheme.ACCENT, 1f)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity, UiTheme.ACCENT, 1f)
+            setPadding(dp(13), dp(11), dp(13), dp(11))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             }
         }
         liveProcessCardTitle = TextView(this).apply {
-            text = "Что происходит сейчас: ${snap.phaseTitle}"
-            textSize = 14f
+            text = snap.phaseTitle
+            textSize = 14.5f
             setTextColor(UiTheme.ACCENT)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
@@ -805,14 +721,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         // 2. Theory card
         val theoryCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity, UiTheme.STROKE, 1f)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity)
+            setPadding(dp(13), dp(11), dp(13), dp(11))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             }
         }
         theoryCard.addView(TextView(this).apply {
-            text = "📚 Теория: ${activeRoom.topic.title}"
+            text = "📚 Краткая теория"
             textSize = 13.5f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -832,21 +748,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         tabContentBox.addView(theoryCard)
 
         // 3. Guided Student Lab Tasks
-        val tasksTitle = TextView(this).apply {
+        tabContentBox.addView(TextView(this).apply {
             text = "✅ Задания к лабораторной работе"
             textSize = 13.5f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(0, 0, 0, dp(6))
-        }
-        tabContentBox.addView(tasksTitle)
+        })
         for (task in activeRoom.topic.labTasks()) {
             val cb = CheckBox(this).apply {
                 text = task.text
                 textSize = 12.5f
                 setTextColor(UiTheme.TEXT_PRIMARY)
                 isChecked = activeRoom.completedTaskIds.contains(task.id)
-                background = roundedRect(UiTheme.BG_CARD, 12f, this@MainActivity, UiTheme.STROKE, 1f)
+                background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity)
                 setPadding(dp(10), dp(8), dp(10), dp(8))
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) activeRoom.completedTaskIds.add(task.id) else activeRoom.completedTaskIds.remove(task.id)
@@ -858,23 +773,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             })
         }
 
-        // 4. Full Chronological Change & Explanation Journal
+        // 4. Chronological Journal + Report Share
         val jHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
+                topMargin = dp(8)
                 bottomMargin = dp(6)
             }
         }
         jHeader.addView(TextView(this).apply {
-            text = "📝 Журнал изменений и объяснений (${activeRoom.journal.size})"
+            text = "📝 Журнал действий (${activeRoom.journal.size})"
             textSize = 13.5f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
-        jHeader.addView(makePillButton(this, "📤 Отчёт", UiTheme.BG_CARD_ALT, UiTheme.ACCENT, UiTheme.STROKE, 11.5f, 10f, 5f) {
+        jHeader.addView(makePillButton(this, "📤 Отчёт", UiTheme.BG_CARD_ALT, UiTheme.ACCENT, 0, 12f, 11f, 5f) {
             shareLabReport(activeRoom)
         })
         tabContentBox.addView(jHeader)
@@ -889,21 +804,21 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = roundedRect(UiTheme.BG_CARD, 12f, this@MainActivity, UiTheme.STROKE, 1f)
+                background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity)
                 setPadding(dp(11), dp(8), dp(11), dp(8))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dp(6)
                 }
             }
             card.addView(TextView(this).apply {
-                text = "[${timeFmt.format(Date(entry.wallTimeMs))} · t=${PhysicsEngine.fmt(entry.simTimeSec, 1)}с] ${entry.title}"
-                textSize = 12.5f
+                text = "[${timeFmt.format(Date(entry.wallTimeMs))} · ${PhysicsEngine.fmt(entry.simTimeSec, 1)}с] ${entry.title}"
+                textSize = 12.2f
                 setTextColor(badgeColor)
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             })
             card.addView(TextView(this).apply {
                 text = entry.detail
-                textSize = 12.5f
+                textSize = 12.2f
                 setTextColor(UiTheme.TEXT_PRIMARY)
                 setPadding(0, dp(3), 0, 0)
             })
@@ -912,16 +827,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderRoomsAndTopicsTab() {
-        // Create Room CTA
+        // Create Custom Room button
         val createBtn = makePillButton(
             this,
-            "+ Создать комнату для лабораторной работы",
-            0xFF0284C7.toInt(),
-            0xFFFFFFFF.toInt(),
-            0xFF38BDF8.toInt(),
+            "+ Создать свою комнату",
+            UiTheme.ACCENT,
+            0xFF0A0F18.toInt(),
+            0,
             13.5f,
             14f,
-            11f
+            10f
         ) {
             showCreateRoomDialog(null)
         }
@@ -929,9 +844,37 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             bottomMargin = dp(12)
         })
 
-        // Saved Lab Rooms
+        // Branch Filter Chips
+        val fScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val fRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val filterItems = listOf<Pair<PhysicsBranch?, String>>(null to "Все разделы") +
+            PhysicsBranch.entries.map { it to it.title }
+
+        for ((branch, title) in filterItems) {
+            val active = selectedBranchFilter == branch
+            val chip = makePillButton(
+                this,
+                title,
+                if (active) UiTheme.ACCENT else UiTheme.BG_CARD,
+                if (active) 0xFF0A0F18.toInt() else UiTheme.TEXT_PRIMARY,
+                0,
+                11.5f,
+                11f,
+                6f
+            ) {
+                selectedBranchFilter = branch
+                renderActiveTabContent()
+            }
+            fRow.addView(chip, wrapLp(marginEnd = 6))
+        }
+        fScroll.addView(fRow)
+        tabContentBox.addView(fScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(12)
+        })
+
+        // 1. Saved Rooms
         tabContentBox.addView(TextView(this).apply {
-            text = "🧪 Мои лабораторные комнаты (${rooms.size})"
+            text = "🧪 Мои комнаты (${rooms.size})"
             textSize = 14f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -944,10 +887,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 orientation = LinearLayout.VERTICAL
                 background = roundedRect(
                     UiTheme.BG_CARD,
-                    14f,
+                    16f,
                     this@MainActivity,
-                    if (isAct) UiTheme.ACCENT else UiTheme.STROKE,
-                    if (isAct) 1.8f else 1f
+                    if (isAct) UiTheme.ACCENT else 0,
+                    if (isAct) 1.5f else 0f
                 )
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -961,20 +904,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             })
             card.addView(TextView(this).apply {
-                text = "${r.topic.title} · ${r.topic.branch.title} · Замеров: ${r.measurements.size} · Записей: ${r.journal.size}"
+                text = "${r.topic.title} · Замеров: ${r.measurements.size}"
                 textSize = 11.5f
                 setTextColor(UiTheme.TEXT_MUTED)
-                setPadding(0, dp(2), 0, dp(6))
+                setPadding(0, dp(2), 0, dp(7))
             })
             val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            btnRow.addView(makePillButton(this, if (isAct) "К приборам" else "Открыть", if (isAct) UiTheme.ACCENT else UiTheme.BG_CARD_ALT, if (isAct) 0xFF0A0F18.toInt() else UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 12f, 12f, 6f) {
+            btnRow.addView(makePillButton(this, if (isAct) "К опыту" else "Открыть", if (isAct) UiTheme.ACCENT else UiTheme.BG_CARD_ALT, if (isAct) 0xFF0A0F18.toInt() else UiTheme.TEXT_PRIMARY, 0, 12f, 12f, 6f) {
                 loadRoomIntoEngine(r, switchToControls = true)
             }, wrapLp(marginEnd = 6))
-            btnRow.addView(makePillButton(this, "📤 Отчёт", UiTheme.BG_CARD_ALT, UiTheme.ACCENT, UiTheme.STROKE, 12f, 11f, 6f) {
+            btnRow.addView(makePillButton(this, "📤 Отчёт", UiTheme.BG_CARD_ALT, UiTheme.ACCENT, 0, 12f, 11f, 6f) {
                 shareLabReport(r)
             }, wrapLp(marginEnd = 6))
             if (rooms.size > 1) {
-                btnRow.addView(makePillButton(this, "Удалить", UiTheme.BG_CARD_ALT, UiTheme.RED, UiTheme.STROKE, 12f, 10f, 6f) {
+                btnRow.addView(makePillButton(this, "Удалить", UiTheme.BG_CARD_ALT, UiTheme.RED, 0, 12f, 10f, 6f) {
                     rooms.removeAll { it.id == r.id }
                     if (activeRoom.id == r.id) {
                         loadRoomIntoEngine(rooms.first(), switchToControls = false)
@@ -988,28 +931,91 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             tabContentBox.addView(card)
         }
 
-        // Experiment Topic Catalog
+        // 2. Ready School Lab Works (filtered by branch)
+        val filteredLabs = ExperimentTopic.readyLabWorks().filter {
+            selectedBranchFilter == null || it.topic.branch == selectedBranchFilter
+        }
+        if (filteredLabs.isNotEmpty()) {
+            tabContentBox.addView(TextView(this).apply {
+                text = "🎓 Готовые лабораторные работы (${filteredLabs.size})"
+                textSize = 14f
+                setTextColor(UiTheme.TEXT_PRIMARY)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                setPadding(0, dp(8), 0, dp(6))
+            })
+            for (lw in filteredLabs) {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(7)
+                    }
+                }
+                val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                top.addView(TextView(this).apply {
+                    text = lw.topic.branch.title
+                    textSize = 10.5f
+                    setTextColor(lw.topic.branch.badgeColor.toInt())
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                top.addView(TextView(this).apply {
+                    text = lw.grade
+                    textSize = 10.5f
+                    setTextColor(UiTheme.TEXT_MUTED)
+                })
+                card.addView(top)
+                card.addView(TextView(this).apply {
+                    text = lw.title
+                    textSize = 13.5f
+                    setTextColor(UiTheme.TEXT_PRIMARY)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setPadding(0, dp(2), 0, dp(2))
+                })
+                card.addView(TextView(this).apply {
+                    text = "Цель: ${lw.goal}"
+                    textSize = 12f
+                    setTextColor(UiTheme.TEXT_MUTED)
+                    setPadding(0, 0, 0, dp(7))
+                })
+                card.addView(makePillButton(this, "▶ Начать лабораторную работу", UiTheme.BG_CARD_ALT, UiTheme.ACCENT, 0, 12f, 12f, 6f) {
+                    val created = repo.createRoom(
+                        name = lw.title,
+                        studentName = activeRoom.studentName,
+                        goal = lw.goal,
+                        topic = lw.topic
+                    )
+                    for ((k, v) in lw.initialParams) created.params[k] = v
+                    rooms.add(0, created)
+                    loadRoomIntoEngine(created, switchToControls = true)
+                })
+                tabContentBox.addView(card)
+            }
+        }
+
+        // 3. Full Catalog of 14 Physics Topics
+        val filteredTopics = ExperimentTopic.entries.filter {
+            selectedBranchFilter == null || it.branch == selectedBranchFilter
+        }
         tabContentBox.addView(TextView(this).apply {
-            text = "📚 Все темы экспериментов (8 модулей)"
+            text = "📚 Все физические установки (${filteredTopics.size})"
             textSize = 14f
             setTextColor(UiTheme.TEXT_PRIMARY)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(0, dp(8), 0, dp(6))
         })
 
-        for (topic in ExperimentTopic.entries) {
+        for (topic in filteredTopics) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = roundedRect(UiTheme.BG_CARD, 14f, this@MainActivity, UiTheme.STROKE, 1f)
+                background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dp(8)
                 }
             }
-            val topRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
+            val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             topRow.addView(TextView(this).apply {
                 text = topic.branch.title
                 textSize = 10.5f
@@ -1034,16 +1040,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 text = topic.shortDesc
                 textSize = 12f
                 setTextColor(UiTheme.TEXT_MUTED)
-            })
-            card.addView(TextView(this).apply {
-                text = topic.mainFormula
-                textSize = 11.5f
-                setTextColor(UiTheme.YELLOW)
-                typeface = Typeface.MONOSPACE
-                setPadding(0, dp(4), 0, dp(8))
+                setPadding(0, 0, 0, dp(7))
             })
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            actions.addView(makePillButton(this, "Открыть в текущей комнате", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 11.5f, 10f, 6f) {
+            actions.addView(makePillButton(this, "Открыть здесь", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, 0, 12f, 11f, 6f) {
                 activeRoom.topic = topic
                 activeRoom.params.clear()
                 activeRoom.params.putAll(topic.defaultParams())
@@ -1051,7 +1051,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 activeRoom.journal.add(0, ChangeLogEntry("top_$now", 0.0, now, "ROOM", "Смена темы → ${topic.title}", topic.shortDesc))
                 loadRoomIntoEngine(activeRoom, switchToControls = true)
             }, wrapLp(marginEnd = 6))
-            actions.addView(makePillButton(this, "+ Новая комната", UiTheme.ACCENT, 0xFF0A0F18.toInt(), UiTheme.ACCENT, 11.5f, 10f, 6f) {
+            actions.addView(makePillButton(this, "+ Новая комната", UiTheme.ACCENT, 0xFF0A0F18.toInt(), 0, 12f, 11f, 6f) {
                 showCreateRoomDialog(topic)
             })
             card.addView(actions)
@@ -1147,14 +1147,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         lastUiRefreshMs = now
 
         val snap = engine.captureTelemetry(activeRoom.params)
-        timeBadge.text = "t = ${PhysicsEngine.fmt(snap.simTime, 2)} с"
+        val spdLabel = if (timeScale == 1.0 || timeScale == 2.0) timeScale.toInt().toString() else timeScale.toString()
+        timeSpeedBadge.text = "t = ${PhysicsEngine.fmt(snap.simTime, 2)} с · ${spdLabel}×"
 
         val useExplain = now < lastExplanationUntilMs && lastExplanationTitle.isNotBlank()
         liveBannerTitle.text = if (useExplain) "💡 $lastExplanationTitle" else "⚡ ${snap.phaseTitle}"
         liveBannerDetail.text = if (useExplain) lastExplanationDetail else snap.phaseDetail
-        liveBannerFormula.text = snap.liveFormula
 
-        // Update Graphs tab if currently open
         if (activeTab == 1) {
             snap.metrics.forEachIndexed { idx, m ->
                 liveMetricValueViews.getOrNull(idx)?.text = "${m.value} ${m.unit}".trim()
@@ -1182,7 +1181,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 seg(snap.energyLost / tot, 0xFF64748B.toInt())
             }
         } else if (activeTab == 2) {
-            liveProcessCardTitle?.text = "Что происходит сейчас: ${snap.phaseTitle}"
+            liveProcessCardTitle?.text = snap.phaseTitle
             liveProcessCardDetail?.text = snap.phaseDetail
             liveProcessCardFormula?.text = snap.liveFormula
         }

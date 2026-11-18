@@ -17,13 +17,13 @@ import com.xloneroom.physlab.model.ParamDescriptor
 import kotlin.math.roundToInt
 
 object UiTheme {
-    const val BG_DARK = 0xFF0E121B.toInt()
-    const val BG_SURFACE = 0xFF161C29.toInt()
-    const val BG_CARD = 0xFF1C2435.toInt()
-    const val BG_CARD_ALT = 0xFF232D42.toInt()
-    const val STROKE = 0xFF2E3A52.toInt()
+    const val BG_DARK = 0xFF0C111C.toInt()
+    const val BG_SURFACE = 0xFF131A28.toInt()
+    const val BG_CARD = 0xFF182133.toInt()
+    const val BG_CARD_ALT = 0xFF212C42.toInt()
+    const val STROKE = 0xFF26334D.toInt()
     const val ACCENT = 0xFF38BDF8.toInt()
-    const val ACCENT_SOFT = 0x3338BDF8
+    const val ACCENT_SOFT = 0x2638BDF8
     const val ORANGE = 0xFFF97316.toInt()
     const val GREEN = 0xFF22C55E.toInt()
     const val PURPLE = 0xFFA855F7.toInt()
@@ -124,12 +124,12 @@ fun buildSliderControl(
 
     val card = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = roundedRect(UiTheme.BG_CARD, 14f, context, UiTheme.STROKE, 1f)
-        setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(8))
+        background = roundedRect(UiTheme.BG_CARD, 16f, context)
+        setPadding(context.dp(12), context.dp(9), context.dp(12), context.dp(5))
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = context.dp(8) }
+        ).apply { bottomMargin = context.dp(7) }
     }
 
     val topRow = LinearLayout(context).apply {
@@ -141,7 +141,6 @@ fun buildSliderControl(
         text = desc.label
         textSize = 13.5f
         setTextColor(UiTheme.TEXT_PRIMARY)
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
     }
 
@@ -149,13 +148,12 @@ fun buildSliderControl(
         text = formatParam(desc, currentVal)
         textSize = 13.5f
         setTextColor(accentColor)
-        typeface = Typeface.MONOSPACE
-        setPadding(context.dp(8), context.dp(3), context.dp(8), context.dp(3))
-        background = roundedRect(0x2238BDF8, 10f, context)
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        setPadding(context.dp(8), context.dp(2), context.dp(8), context.dp(2))
     }
 
-    val minusBtn = makePillButton(context, "−", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 15f, 10f, 3f) {}
-    val plusBtn = makePillButton(context, "+", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, UiTheme.STROKE, 15f, 10f, 3f) {}
+    val minusBtn = makePillButton(context, "−", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, 0, 14f, 10f, 3f) {}
+    val plusBtn = makePillButton(context, "+", UiTheme.BG_CARD_ALT, UiTheme.TEXT_PRIMARY, 0, 14f, 10f, 3f) {}
 
     topRow.addView(lblView)
     topRow.addView(minusBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -272,19 +270,18 @@ fun buildToggleControl(
     val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        background = roundedRect(UiTheme.BG_CARD, 14f, context, UiTheme.STROKE, 1f)
-        setPadding(context.dp(14), context.dp(11), context.dp(14), context.dp(11))
+        background = roundedRect(UiTheme.BG_CARD, 16f, context)
+        setPadding(context.dp(14), context.dp(10), context.dp(14), context.dp(10))
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = context.dp(8) }
+        ).apply { bottomMargin = context.dp(7) }
     }
 
     val lbl = TextView(context).apply {
         text = desc.label
         textSize = 13.5f
         setTextColor(UiTheme.TEXT_PRIMARY)
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
     }
 
@@ -322,12 +319,12 @@ fun buildChoiceControl(
 
     val card = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = roundedRect(UiTheme.BG_CARD, 14f, context, UiTheme.STROKE, 1f)
-        setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(10))
+        background = roundedRect(UiTheme.BG_CARD, 16f, context)
+        setPadding(context.dp(12), context.dp(9), context.dp(12), context.dp(9))
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = context.dp(8) }
+        ).apply { bottomMargin = context.dp(7) }
     }
 
     val lbl = TextView(context).apply {

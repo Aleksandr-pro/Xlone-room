@@ -177,6 +177,121 @@ class PhysicsEngineTest {
     }
 
     @Test
+    fun buoyancyArchimedesFloatAndSink() {
+        val wood = ExperimentTopic.BUOYANCY.defaultParams().apply {
+            put("liquidDensity", 1000.0)
+            put("bodyDensity", 500.0)
+            put("holdSensor", 0.0)
+        }
+        val eWood = PhysicsEngine(ExperimentTopic.BUOYANCY).apply { reset(ExperimentTopic.BUOYANCY, wood) }
+        repeat(200) { eWood.step(0.02, wood) }
+        assertEquals("500 kg/m3 body in 1000 kg/m3 water should settle near 50% submerged", 0.5, eWood.buoySubmergedFrac, 0.08)
+
+        val iron = ExperimentTopic.BUOYANCY.defaultParams().apply {
+            put("liquidDensity", 1000.0)
+            put("bodyDensity", 7800.0)
+            put("holdSensor", 0.0)
+        }
+        val eIron = PhysicsEngine(ExperimentTopic.BUOYANCY).apply { reset(ExperimentTopic.BUOYANCY, iron) }
+        repeat(200) { eIron.step(0.02, iron) }
+        assertEquals("Iron should sink to 100% submerged in water", 1.0, eIron.buoySubmergedFrac, 0.01)
+    }
+
+    @Test
+    fun inclinedPlaneStaticVsSlidingFriction() {
+        val gentle = ExperimentTopic.INCLINED_PLANE.defaultParams().apply {
+            put("slopeAngle", 10.0)
+            put("frictionMu", 0.35)
+            put("pullForce", 0.0)
+        }
+        val eGentle = PhysicsEngine(ExperimentTopic.INCLINED_PLANE).apply { reset(ExperimentTopic.INCLINED_PLANE, gentle) }
+        repeat(100) { eGentle.step(0.02, gentle) }
+        assertFalse("Block should stay at rest when tan(10)<0.35", eGentle.slopeIsSliding)
+
+        val steep = gentle.toMutableMap().apply { put("slopeAngle", 40.0) }
+        val eSteep = PhysicsEngine(ExperimentTopic.INCLINED_PLANE).apply { reset(ExperimentTopic.INCLINED_PLANE, steep) }
+        repeat(50) { eSteep.step(0.02, steep) }
+        assertTrue("Block should slide down when tan(40)>0.35", eSteep.slopeVel < -0.5)
+    }
+
+    @Test
+    fun electrostaticsCyclotronPreservesSpeed() {
+        val cyc = ExperimentTopic.ELECTROSTATICS.defaultParams().apply {
+            put("fieldMode", 1.0)
+            put("charge", 1.0)
+            put("v0", 9.0)
+            put("eField", 0.0)
+            put("bField", 8.0)
+        }
+        val eng = PhysicsEngine(ExperimentTopic.ELECTROSTATICS).apply { reset(ExperimentTopic.ELECTROSTATICS, cyc) }
+        repeat(120) { eng.step(0.02, cyc) }
+        val speed = hypot(eng.chargeVel.x, eng.chargeVel.y)
+        assertEquals("Magnetic Lorentz force must preserve speed", 9.0, speed, 0.05)
+    }
+
+    @Test
+    fun electromagneticInductionZeroWhenStaticNonZeroWhenMoving() {
+        val staticParams = ExperimentTopic.ELECTROMAGNETIC.defaultParams().apply {
+            put("autoOscillate", 0.0)
+        }
+        val eng = PhysicsEngine(ExperimentTopic.ELECTROMAGNETIC).apply { reset(ExperimentTopic.ELECTROMAGNETIC, staticParams) }
+        repeat(40) { eng.step(0.02, staticParams) }
+        assertEquals("No induced EMF when magnet is stationary", 0.0, eng.inducedEmf, 0.02)
+
+        val movingParams = staticParams.toMutableMap().apply { put("autoOscillate", 1.0); put("freq", 1.0) }
+        eng.reset(ExperimentTopic.ELECTROMAGNETIC, movingParams)
+        var maxEmf = 0.0
+        repeat(80) {
+            eng.step(0.02, movingParams)
+            maxEmf = kotlin.math.max(maxEmf, abs(eng.inducedEmf))
+        }
+        assertTrue("Moving magnet must induce significant EMF", maxEmf > 1.0)
+    }
+
+    @Test
+    fun photoelectricRedThresholdStopsCurrent() {
+        val uv = ExperimentTopic.PHOTOELECTRIC.defaultParams().apply {
+            put("cathodeMetal", 0.0) // Cesium 2.14 eV -> lambda_red ~ 579 nm
+            put("wavelengthNm", 360.0)
+            put("voltage", 1.5)
+        }
+        val eUv = PhysicsEngine(ExperimentTopic.PHOTOELECTRIC).apply { reset(ExperimentTopic.PHOTOELECTRIC, uv) }
+        repeat(60) { eUv.step(0.02, uv) }
+        assertTrue("UV light on Cesium must produce photocurrent", eUv.photoCurrentMa > 1.0)
+
+        val red = uv.toMutableMap().apply { put("wavelengthNm", 700.0) }
+        val eRed = PhysicsEngine(ExperimentTopic.PHOTOELECTRIC).apply { reset(ExperimentTopic.PHOTOELECTRIC, red) }
+        repeat(60) { eRed.step(0.02, red) }
+        assertEquals("Red light above threshold must produce zero current", 0.0, eRed.photoCurrentMa, 0.01)
+    }
+
+    @Test
+    fun radioactiveDecayFollowsHalfLifeApproximately() {
+        val params = ExperimentTopic.RADIOACTIVE.defaultParams().apply {
+            put("halfLife", 2.0)
+            put("nucleiCount", 400.0)
+        }
+        val eng = PhysicsEngine(ExperimentTopic.RADIOACTIVE).apply { reset(ExperimentTopic.RADIOACTIVE, params) }
+        // Step for exactly 1 half-life (2.0s)
+        repeat(100) { eng.step(0.02, params) }
+        assertTrue("After 1 half-life ~200 of 400 nuclei remain (got ${eng.aliveNuclei})", eng.aliveNuclei in 150..250)
+    }
+
+    @Test
+    fun readyLabWorksHaveValidTopicsAndParams() {
+        val labs = ExperimentTopic.readyLabWorks()
+        assertTrue("Should have at least 12 ready lab works", labs.size >= 12)
+        for (lw in labs) {
+            assertTrue(lw.title.isNotBlank())
+            assertTrue(lw.goal.isNotBlank())
+            val defaults = lw.topic.defaultParams()
+            for (k in lw.initialParams.keys) {
+                assertTrue("ReadyLab ${lw.id} uses unknown param $k", defaults.containsKey(k))
+            }
+        }
+    }
+
+    @Test
     fun everyTopicHasDescribedParametersAndExplanations() {
         val engine = PhysicsEngine()
         for (topic in ExperimentTopic.entries) {

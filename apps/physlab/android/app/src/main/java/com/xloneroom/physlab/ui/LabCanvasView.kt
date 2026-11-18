@@ -85,10 +85,16 @@ class LabCanvasView(context: Context) : View(context) {
             ExperimentTopic.BALLISTICS -> drawBallistics(canvas, w, h, eng)
             ExperimentTopic.PENDULUM -> drawPendulum(canvas, w, h, eng)
             ExperimentTopic.COLLISIONS -> drawCollisions(canvas, w, h, eng)
+            ExperimentTopic.BUOYANCY -> drawBuoyancy(canvas, w, h, eng)
+            ExperimentTopic.INCLINED_PLANE -> drawInclinedPlane(canvas, w, h, eng)
             ExperimentTopic.CIRCUITS -> drawCircuits(canvas, w, h, eng)
+            ExperimentTopic.ELECTROSTATICS -> drawElectrostatics(canvas, w, h, eng)
+            ExperimentTopic.ELECTROMAGNETIC -> drawElectromagnetic(canvas, w, h, eng)
             ExperimentTopic.IDEAL_GAS -> drawIdealGas(canvas, w, h, eng)
             ExperimentTopic.OPTICS -> drawOptics(canvas, w, h, eng)
             ExperimentTopic.WAVES -> drawWaves(canvas, w, h, eng)
+            ExperimentTopic.PHOTOELECTRIC -> drawPhotoelectric(canvas, w, h, eng)
+            ExperimentTopic.RADIOACTIVE -> drawRadioactive(canvas, w, h, eng)
             ExperimentTopic.ORBITS -> drawOrbits(canvas, w, h, eng)
         }
 
@@ -97,10 +103,16 @@ class LabCanvasView(context: Context) : View(context) {
             ExperimentTopic.BALLISTICS -> "Потяни у пушки: угол и v₀"
             ExperimentTopic.PENDULUM -> "Потяни груз пальцем"
             ExperimentTopic.COLLISIONS -> "Потяни шары вдоль дорожки"
+            ExperimentTopic.BUOYANCY -> "Потяни кубик в жидкость"
+            ExperimentTopic.INCLINED_PLANE -> "Потяни склон: угол α"
             ExperimentTopic.CIRCUITS -> "Нажми на ключ в схеме"
+            ExperimentTopic.ELECTROSTATICS -> "Поля E и B действуют на q"
+            ExperimentTopic.ELECTROMAGNETIC -> "Двигай магнит пальцем!"
             ExperimentTopic.IDEAL_GAS -> "Потяни поршень вверх/вниз"
             ExperimentTopic.OPTICS -> if ((params["optMode"] ?: 0.0) < 0.5) "Потяни свечу вдоль оси" else "Потяни луч лазера"
-            ExperimentTopic.WAVES -> "Наблюдение волн в реальном времени"
+            ExperimentTopic.WAVES -> "Волновая картина"
+            ExperimentTopic.PHOTOELECTRIC -> "Свет выбивает электроны"
+            ExperimentTopic.RADIOACTIVE -> "Наблюдай распад ядер"
             ExperimentTopic.ORBITS -> "Потяни вектор скорости v"
         }
         smallTextPaint.textSize = resources.displayMetrics.density * 11f
@@ -978,6 +990,361 @@ class LabCanvasView(context: Context) : View(context) {
         }
     }
 
+    private fun drawBuoyancy(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val tankL = w * 0.24f
+        val tankR = w * 0.76f
+        val tankTop = 26f * d
+        val tankBot = h - 22f * d
+        val tankH = tankBot - tankTop
+
+        val liqType = (params["liquidType"] ?: 0.0).toInt()
+        val liqColor = when (liqType) {
+            0 -> 0x6638BDF8 // water
+            1 -> 0x66FACC15 // oil
+            2 -> 0x662DD4BF // glycerin
+            else -> 0x9994A3B8 // mercury
+        }
+        val baseWaterY = tankTop + tankH * 0.45f
+        val risePx = (eng.buoySubmergedFrac * 14f * d).toFloat()
+        val waterY = baseWaterY - risePx
+
+        // Liquid fill
+        fillPaint.color = liqColor
+        canvas.drawRect(tankL, waterY, tankR, tankBot, fillPaint)
+        strokePaint.color = 0xFF38BDF8.toInt()
+        strokePaint.strokeWidth = 2.5f * d
+        canvas.drawLine(tankL, waterY, tankR, waterY, strokePaint)
+
+        // Tank walls + ruler ticks
+        strokePaint.color = 0xFF94A3B8.toInt()
+        strokePaint.strokeWidth = 3.5f * d
+        canvas.drawLine(tankL, tankTop, tankL, tankBot, strokePaint)
+        canvas.drawLine(tankL, tankBot, tankR, tankBot, strokePaint)
+        canvas.drawLine(tankR, tankBot, tankR, tankTop, strokePaint)
+
+        // Body
+        val volL = params["bodyVolume"] ?: 2.0
+        val sidePx = ((0.14 + 0.045 * cbrt(volL)) * tankH).toFloat()
+        val bodyCx = (tankL + tankR) * 0.5f
+        val bodyCy = baseWaterY - (eng.buoyY.toFloat() * tankH * 0.5f)
+        handlePoint1.set(bodyCx, bodyCy)
+
+        val hold = (params["holdSensor"] ?: 0.0) >= 0.5
+        if (hold) {
+            strokePaint.color = 0xFFFACC15.toInt()
+            strokePaint.strokeWidth = 2.5f * d
+            canvas.drawLine(bodyCx, 6f * d, bodyCx, bodyCy - sidePx, strokePaint)
+            fillPaint.color = 0xFF1E293B.toInt()
+            canvas.drawRoundRect(bodyCx - 28f * d, 4f * d, bodyCx + 28f * d, 24f * d, 6f * d, 6f * d, fillPaint)
+        }
+
+        val rhoB = params["bodyDensity"] ?: 750.0
+        fillPaint.color = when {
+            rhoB < 950 -> 0xFFD97706.toInt() // wood
+            rhoB < 3000 -> 0xFF64748B.toInt() // stone/alu
+            else -> 0xFF475569.toInt() // iron/heavy
+        }
+        canvas.drawRoundRect(bodyCx - sidePx, bodyCy - sidePx, bodyCx + sidePx, bodyCy + sidePx, 6f * d, 6f * d, fillPaint)
+        strokePaint.color = 0xFFE2E8F0.toInt()
+        strokePaint.strokeWidth = 2f * d
+        canvas.drawRoundRect(bodyCx - sidePx, bodyCy - sidePx, bodyCx + sidePx, bodyCy + sidePx, 6f * d, 6f * d, strokePaint)
+
+        textPaint.color = 0xFFFFFFFF.toInt()
+        textPaint.textSize = 11f * d
+        canvas.drawText("${rhoB.toInt()} кг/м³", bodyCx - 26f * d, bodyCy + 4f * d, textPaint)
+
+        if (showVectors) {
+            val rhoL = params["liquidDensity"] ?: 1000.0
+            val g = params["gravity"] ?: 9.81
+            val fG = rhoB * (volL / 1000.0) * g
+            val fA = rhoL * (volL / 1000.0) * eng.buoySubmergedFrac * g
+            val sc = (1.6f * d) / max(1.0f, (fG / 30.0).toFloat())
+            drawArrow(canvas, bodyCx - 12f * d, bodyCy, bodyCx - 12f * d, bodyCy + min(65f * d, (fG * sc).toFloat()), 0xFFEF4444.toInt(), "mg")
+            if (fA > 0.1) {
+                drawArrow(canvas, bodyCx + 12f * d, bodyCy, bodyCx + 12f * d, bodyCy - min(65f * d, (fA * sc).toFloat()), 0xFF38BDF8.toInt(), "F_A")
+            }
+        }
+    }
+
+    private fun drawInclinedPlane(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val alphaDeg = params["slopeAngle"] ?: 28.0
+        val rad = Math.toRadians(alphaDeg)
+        val baseY = h - 26f * d
+        val leftX = w * 0.12f
+        val maxW = w * 0.76f
+        val maxH = h - 56f * d
+
+        // Scale triangle to fit screen cleanly
+        val rampLenPx = min(maxW / cos(rad).toFloat(), maxH / sin(rad).toFloat()).coerceAtLeast(80f * d)
+        val topX = leftX + cos(rad).toFloat() * rampLenPx
+        val topY = baseY - sin(rad).toFloat() * rampLenPx
+        handlePoint1.set(topX, topY)
+
+        // Wedge
+        pathBuf.reset()
+        pathBuf.moveTo(leftX, baseY)
+        pathBuf.lineTo(topX, baseY)
+        pathBuf.lineTo(topX, topY)
+        pathBuf.close()
+        fillPaint.color = 0xFF1E293B.toInt()
+        canvas.drawPath(pathBuf, fillPaint)
+        strokePaint.color = 0xFF475569.toInt()
+        strokePaint.strokeWidth = 3f * d
+        canvas.drawPath(pathBuf, strokePaint)
+
+        // Block at slopePos (0..10m)
+        val frac = (eng.slopePos / 10.0).toFloat().coerceIn(0.04f, 0.94f)
+        val bx = leftX + cos(rad).toFloat() * rampLenPx * frac
+        val by = baseY - sin(rad).toFloat() * rampLenPx * frac
+
+        val ux = cos(rad).toFloat()
+        val uy = -sin(rad).toFloat()
+        val nx = -sin(rad).toFloat()
+        val ny = -cos(rad).toFloat()
+        val bw = 18f * d
+        val bh = 13f * d
+        val cx = bx + nx * bh
+        val cy = by + ny * bh
+
+        canvas.save()
+        canvas.rotate(-alphaDeg.toFloat(), cx, cy)
+        fillPaint.color = 0xFFF97316.toInt()
+        canvas.drawRoundRect(cx - bw, cy - bh, cx + bw, cy + bh, 5f * d, 5f * d, fillPaint)
+        canvas.restore()
+
+        textPaint.color = 0xFF94A3B8.toInt()
+        textPaint.textSize = 11.5f * d
+        canvas.drawText("α = ${alphaDeg.toInt()}°", leftX + 26f * d, baseY - 8f * d, textPaint)
+
+        if (showVectors) {
+            drawArrow(canvas, cx, cy, cx, cy + 44f * d, 0xFFEF4444.toInt(), "mg")
+            drawArrow(canvas, cx, cy, cx + nx * 36f * d, cy + ny * 36f * d, 0xFF22C55E.toInt(), "N")
+            val pull = params["pullForce"] ?: 0.0
+            if (pull > 1.0) {
+                drawArrow(canvas, cx, cy, cx + ux * 40f * d, cy + uy * 40f * d, 0xFF38BDF8.toInt(), "F_тяги")
+            }
+            if (abs(eng.slopeVel) > 0.02 || (params["frictionMu"] ?: 0.25) > 0.01) {
+                val frDir = if (eng.slopeVel > 0.02) -1f else 1f
+                drawArrow(canvas, cx, cy, cx + ux * frDir * 28f * d, cy + uy * frDir * 28f * d, 0xFFFACC15.toInt(), "F_тр")
+            }
+        }
+    }
+
+    private fun drawElectrostatics(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val mode = (params["fieldMode"] ?: 0.0).toInt()
+        val eF = params["eField"] ?: 6.0
+        val bF = params["bField"] ?: 0.0
+
+        val padX = w * 0.08f
+        val boxW = w - 2f * padX
+        val midY = h * 0.5f
+        val halfH = h * 0.36f
+
+        fun sx(wx: Double) = padX + (wx / 10.0).toFloat() * boxW
+        fun sy(wy: Double) = midY - (wy / 4.2).toFloat() * halfH
+
+        // Plates for modes 0 and 2
+        if (mode != 1) {
+            strokePaint.color = if (eF >= 0) 0xFFEF4444.toInt() else 0xFF38BDF8.toInt()
+            strokePaint.strokeWidth = 5f * d
+            canvas.drawLine(padX, midY - halfH, w - padX, midY - halfH, strokePaint)
+            strokePaint.color = if (eF >= 0) 0xFF38BDF8.toInt() else 0xFFEF4444.toInt()
+            canvas.drawLine(padX, midY + halfH, w - padX, midY + halfH, strokePaint)
+        }
+
+        // B-field symbols (dots / crosses) for modes 1 and 2
+        if (mode != 0 && abs(bF) > 0.2) {
+            smallTextPaint.textSize = 13f * d
+            smallTextPaint.color = 0x552DD4BF
+            val sym = if (bF > 0) "⊗" else "⊙"
+            for (ix in 1..6) {
+                for (iy in 1..3) {
+                    canvas.drawText(sym, padX + boxW * ix / 7f, (midY - halfH) + (2f * halfH) * iy / 4f, smallTextPaint)
+                }
+            }
+        }
+
+        // Trail
+        if (eng.chargeTrail.size > 1) {
+            strokePaint.color = 0xFF38BDF8.toInt()
+            strokePaint.strokeWidth = 3f * d
+            pathBuf.reset()
+            eng.chargeTrail.forEachIndexed { idx, pt ->
+                if (idx == 0) pathBuf.moveTo(sx(pt.x), sy(pt.y)) else pathBuf.lineTo(sx(pt.x), sy(pt.y))
+            }
+            canvas.drawPath(pathBuf, strokePaint)
+        }
+
+        val q = params["charge"] ?: 1.0
+        val px = sx(eng.chargePos.x)
+        val py = sy(eng.chargePos.y)
+        fillPaint.color = if (q > 0) 0xFFEF4444.toInt() else if (q < 0) 0xFF38BDF8.toInt() else 0xFF94A3B8.toInt()
+        canvas.drawCircle(px, py, 8.5f * d, fillPaint)
+        textPaint.color = 0xFFFFFFFF.toInt()
+        textPaint.textSize = 11f * d
+        canvas.drawText(if (q > 0) "+" else if (q < 0) "−" else "0", px - 3.5f * d, py + 4f * d, textPaint)
+
+        if (showVectors) {
+            drawArrow(canvas, px, py, px + (eng.chargeVel.x * 2.5f * d).toFloat(), py - (eng.chargeVel.y * 2.5f * d).toFloat(), 0xFFFACC15.toInt(), "v")
+        }
+    }
+
+    private fun drawElectromagnetic(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val cx = w * 0.52f
+        val cy = h * 0.58f
+
+        // Galvanometer dial at top
+        val dialCx = w * 0.5f
+        val dialCy = 44f * d
+        val dialR = 28f * d
+        fillPaint.color = 0xFF1E293B.toInt()
+        canvas.drawCircle(dialCx, dialCy, dialR, fillPaint)
+        strokePaint.color = 0xFF64748B.toInt()
+        strokePaint.strokeWidth = 2.5f * d
+        canvas.drawCircle(dialCx, dialCy, dialR, strokePaint)
+
+        val needleAng = (eng.inducedEmf * 0.08).coerceIn(-1.2, 1.2)
+        strokePaint.color = 0xFFFACC15.toInt()
+        strokePaint.strokeWidth = 3f * d
+        canvas.drawLine(dialCx, dialCy + 8f * d, dialCx + sin(needleAng).toFloat() * (dialR - 5f * d), dialCy - cos(needleAng).toFloat() * (dialR - 5f * d), strokePaint)
+        smallTextPaint.textSize = 10f * d
+        smallTextPaint.color = 0xFFFACC15.toInt()
+        canvas.drawText("ε = ${PhysicsEngine.fmt(eng.inducedEmf, 1)} В", dialCx + dialR + 10f * d, dialCy + 4f * d, smallTextPaint)
+
+        // Coil windings
+        val coilW = 90f * d
+        val coilH = 74f * d
+        val glowAlpha = (abs(eng.inducedCurrent) * 280).toInt().coerceIn(0, 180)
+        val glowCol = if (eng.inducedCurrent >= 0) Color.argb(glowAlpha, 56, 189, 248) else Color.argb(glowAlpha, 249, 115, 22)
+        fillPaint.color = glowCol
+        canvas.drawRoundRect(cx - coilW * 0.5f, cy - coilH * 0.5f, cx + coilW * 0.5f, cy + coilH * 0.5f, 10f * d, 10f * d, fillPaint)
+
+        strokePaint.color = 0xFFD97706.toInt()
+        strokePaint.strokeWidth = 4f * d
+        val loops = 7
+        for (i in 0 until loops) {
+            val lx = cx - coilW * 0.42f + (coilW * 0.84f) * i / (loops - 1)
+            canvas.drawOval(lx - 8f * d, cy - coilH * 0.5f, lx + 8f * d, cy + coilH * 0.5f, strokePaint)
+        }
+
+        // Movable Bar Magnet
+        val magX = cx + eng.magPosX.toFloat() * (w * 0.34f)
+        val magW = 48f * d
+        val magH = 16f * d
+        handlePoint1.set(magX, cy)
+        val polNRight = (params["polarity"] ?: 0.0) < 0.5
+        fillPaint.color = if (polNRight) 0xFF3B82F6.toInt() else 0xFFEF4444.toInt()
+        canvas.drawRect(magX - magW, cy - magH, magX, cy + magH, fillPaint)
+        fillPaint.color = if (polNRight) 0xFFEF4444.toInt() else 0xFF3B82F6.toInt()
+        canvas.drawRect(magX, cy - magH, magX + magW, cy + magH, fillPaint)
+
+        textPaint.color = 0xFFFFFFFF.toInt()
+        textPaint.textSize = 12f * d
+        canvas.drawText(if (polNRight) "S" else "N", magX - magW * 0.6f, cy + 4f * d, textPaint)
+        canvas.drawText(if (polNRight) "N" else "S", magX + magW * 0.4f, cy + 4f * d, textPaint)
+    }
+
+    private fun drawPhotoelectric(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val catX = w * 0.16f
+        val anoX = w * 0.84f
+        val tubeT = h * 0.20f
+        val tubeB = h * 0.80f
+        val midY = (tubeT + tubeB) * 0.5f
+
+        // Glass vacuum tube
+        fillPaint.color = 0xFF0A0F18.toInt()
+        canvas.drawRoundRect(catX - 18f * d, tubeT, anoX + 18f * d, tubeB, 28f * d, 28f * d, fillPaint)
+        strokePaint.color = 0xFF475569.toInt()
+        strokePaint.strokeWidth = 3f * d
+        canvas.drawRoundRect(catX - 18f * d, tubeT, anoX + 18f * d, tubeB, 28f * d, 28f * d, strokePaint)
+
+        // Cathode & Anode plates
+        strokePaint.color = 0xFF94A3B8.toInt()
+        strokePaint.strokeWidth = 7f * d
+        canvas.drawLine(catX, tubeT + 18f * d, catX, tubeB - 18f * d, strokePaint)
+        strokePaint.color = 0xFFF59E0B.toInt()
+        canvas.drawLine(anoX, tubeT + 18f * d, anoX, tubeB - 18f * d, strokePaint)
+
+        // Light beam colored by wavelength
+        val lambdaNm = params["wavelengthNm"] ?: 400.0
+        val beamCol = wavelengthToColor(lambdaNm)
+        strokePaint.color = beamCol
+        strokePaint.strokeWidth = 4f * d
+        for (k in -1..1) {
+            val sy = midY + k * 24f * d
+            canvas.drawLine(catX + 60f * d, sy - 42f * d, catX + 4f * d, sy, strokePaint)
+        }
+
+        // Photoelectrons
+        fillPaint.color = 0xFF38BDF8.toInt()
+        for (e in eng.photoElectrons) {
+            val ex = catX + (e.x.toFloat()) * (anoX - catX)
+            val ey = tubeT + 18f * d + (e.y.toFloat()) * (tubeB - tubeT - 36f * d)
+            canvas.drawCircle(ex, ey, 4f * d, fillPaint)
+        }
+
+        textPaint.color = 0xFFE2E8F0.toInt()
+        textPaint.textSize = 11.5f * d
+        canvas.drawText("Катод", catX - 14f * d, tubeB + 16f * d, textPaint)
+        canvas.drawText("Анод (${PhysicsEngine.fmt(params["voltage"] ?: 1.0, 1)} В)", anoX - 38f * d, tubeB + 16f * d, textPaint)
+        textPaint.color = 0xFF38BDF8.toInt()
+        canvas.drawText("I = ${PhysicsEngine.fmt(eng.photoCurrentMa, 2)} мА", w * 0.42f, 22f * d, textPaint)
+    }
+
+    private fun wavelengthToColor(nm: Double): Int = when {
+        nm < 380 -> 0xFFA855F7.toInt() // UV
+        nm < 450 -> 0xFF6366F1.toInt() // Violet/Blue
+        nm < 495 -> 0xFF38BDF8.toInt() // Cyan
+        nm < 570 -> 0xFF22C55E.toInt() // Green
+        nm < 590 -> 0xFFFACC15.toInt() // Yellow
+        nm < 620 -> 0xFFF97316.toInt() // Orange
+        else -> 0xFFEF4444.toInt()     // Red
+    }
+
+    private fun drawRadioactive(canvas: Canvas, w: Float, h: Float, eng: PhysicsEngine) {
+        val d = resources.displayMetrics.density
+        val total = eng.decayAtoms.size.coerceAtLeast(1)
+        val cols = ceil(sqrt(total * 1.4)).toInt().coerceAtLeast(8)
+        val rows = ceil(total.toDouble() / cols).toInt().coerceAtLeast(4)
+
+        val padX = 24f * d
+        val padT = 32f * d
+        val padB = 26f * d
+        val cellW = (w - 2f * padX) / cols
+        val cellH = (h - padT - padB) / rows
+        val r = min(cellW, cellH) * 0.36f
+
+        eng.decayAtoms.forEachIndexed { idx, atom ->
+            val col = idx % cols
+            val row = idx / cols
+            val cx = padX + (col + 0.5f) * cellW
+            val cy = padT + (row + 0.5f) * cellH
+
+            if (!atom.decayed) {
+                fillPaint.color = 0xFF22C55E.toInt()
+                canvas.drawCircle(cx, cy, r, fillPaint)
+            } else {
+                if (atom.flash > 0.05) {
+                    fillPaint.color = Color.argb((atom.flash * 220).toInt(), 250, 204, 21)
+                    canvas.drawCircle(cx, cy, r * (1.8f - 0.5f * atom.flash.toFloat()), fillPaint)
+                }
+                fillPaint.color = 0x55A855F7
+                canvas.drawCircle(cx, cy, r * 0.85f, fillPaint)
+            }
+        }
+
+        textPaint.color = 0xFF22C55E.toInt()
+        textPaint.textSize = 11.5f * d
+        canvas.drawText("Активных: ${eng.aliveNuclei}", padX, 20f * d, textPaint)
+        textPaint.color = 0xFFA855F7.toInt()
+        canvas.drawText("Распалось: ${eng.decayedNuclei}", w * 0.52f, 20f * d, textPaint)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val eng = engine ?: return false
@@ -1012,6 +1379,19 @@ class LabCanvasView(context: Context) : View(context) {
                             dragMode = if (d1 <= d2) "col_b1" else "col_b2"
                             return true
                         }
+                    }
+                    ExperimentTopic.BUOYANCY -> {
+                        dragMode = "buoy_drag"
+                        return true
+                    }
+                    ExperimentTopic.INCLINED_PLANE -> {
+                        dragMode = "slope_angle"
+                        dragStartVal = params["slopeAngle"] ?: 28.0
+                        return true
+                    }
+                    ExperimentTopic.ELECTROMAGNETIC -> {
+                        dragMode = "em_magnet"
+                        return true
                     }
                     ExperimentTopic.CIRCUITS -> {
                         if (hypot(x - handlePoint1.x, y - handlePoint1.y) < hitR * 1.5f) {
@@ -1102,6 +1482,28 @@ class LabCanvasView(context: Context) : View(context) {
                         val spd = (hypot(x - w * 0.5f, y - h * 0.5f) / (3.2f * d)).toDouble().coerceIn(8.0, 62.0)
                         onDirectDragParam?.invoke("tangVel", dragStartVal, spd, false)
                     }
+                    "buoy_drag" -> {
+                        val tankTop = 26f * d
+                        val tankBot = h - 22f * d
+                        val baseWaterY = tankTop + (tankBot - tankTop) * 0.45f
+                        val newY = ((baseWaterY - y) / ((tankBot - tankTop) * 0.5f)).toDouble().coerceIn(-0.82, 0.72)
+                        eng.buoyY = newY
+                        eng.buoyVy = 0.0
+                        invalidate()
+                    }
+                    "slope_angle" -> {
+                        val baseY = h - 26f * d
+                        val leftX = w * 0.12f
+                        val deg = Math.toDegrees(atan2(max(10f, baseY - y).toDouble(), max(15f, x - leftX).toDouble())).coerceIn(5.0, 65.0)
+                        onDirectDragParam?.invoke("slopeAngle", dragStartVal, deg, false)
+                    }
+                    "em_magnet" -> {
+                        if ((params["autoOscillate"] ?: 1.0) >= 0.5) {
+                            onDirectDragParam?.invoke("autoOscillate", 1.0, 0.0, true)
+                        }
+                        val normX = ((x - w * 0.52f) / (w * 0.34f)).toDouble().coerceIn(-0.92, 0.92)
+                        eng.manualMagTargetX = normX
+                    }
                 }
                 return true
             }
@@ -1118,6 +1520,7 @@ class LabCanvasView(context: Context) : View(context) {
                     "optics_obj" -> onDirectDragParam?.invoke("objDist", dragStartVal, params["objDist"] ?: dragStartVal, true)
                     "optics_angle" -> onDirectDragParam?.invoke("incidentAngle", dragStartVal, params["incidentAngle"] ?: dragStartVal, true)
                     "orbit_vel" -> onDirectDragParam?.invoke("tangVel", dragStartVal, params["tangVel"] ?: dragStartVal, true)
+                    "slope_angle" -> onDirectDragParam?.invoke("slopeAngle", dragStartVal, params["slopeAngle"] ?: dragStartVal, true)
                 }
                 dragMode = null
                 return true

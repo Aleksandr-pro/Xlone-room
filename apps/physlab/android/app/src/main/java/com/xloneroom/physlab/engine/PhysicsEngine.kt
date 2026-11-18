@@ -56,6 +56,40 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
     // Waves state
     var wavePhase = 0.0
 
+    // Buoyancy state (y in [-1.0 .. +1.0], 0.0 is water surface)
+    var buoyY = 0.55
+    var buoyVy = 0.0
+    var buoySubmergedFrac = 0.0
+
+    // Inclined plane state (position along 0..10 m ramp)
+    var slopePos = 7.5
+    var slopeVel = 0.0
+    var slopeAccel = 0.0
+    var slopeIsSliding = false
+
+    // Electrostatics & Lorentz force state (chamber x in [0..10], y in [-4..4])
+    var chargePos = Vec2(0.5, 0.0)
+    var chargeVel = Vec2(9.0, 0.0)
+    val chargeTrail = mutableListOf<TracePoint>()
+
+    // Electromagnetic induction state (magnet x in [-1.0..1.0], 0 is coil center)
+    var magPosX = -0.75
+    var magVelX = 0.0
+    var magFlux = 0.0
+    var inducedEmf = 0.0
+    var inducedCurrent = 0.0
+    var manualMagTargetX: Double? = null
+
+    // Photoelectric effect state
+    val photoElectrons = mutableListOf<PhotoElectron>()
+    var photoCurrentMa = 0.0
+    private var photoEmitAccum = 0.0
+
+    // Radioactive decay state
+    val decayAtoms = mutableListOf<DecayAtom>()
+    var aliveNuclei = 225
+    var decayedNuclei = 0
+
     // Orbits state (AU, AU/yr; 1 AU/yr * 4.7405 = km/s)
     var orbitPos = Vec2(1.2, 0.0)
     var orbitVel = Vec2(0.0, 5.74)
@@ -142,6 +176,34 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
             }
             ExperimentTopic.WAVES -> {
                 wavePhase = 0.0
+            }
+            ExperimentTopic.BUOYANCY -> {
+                buoyY = 0.45
+                buoyVy = 0.0
+                updateBuoyancySubmersion(params)
+            }
+            ExperimentTopic.INCLINED_PLANE -> {
+                slopePos = if (p(params, "pullForce", 0.0) > 5.0) 1.5 else 7.8
+                slopeVel = 0.0
+                slopeAccel = 0.0
+                slopeIsSliding = false
+            }
+            ExperimentTopic.ELECTROSTATICS -> {
+                resetChargeParticle(params)
+            }
+            ExperimentTopic.ELECTROMAGNETIC -> {
+                magPosX = -0.8
+                magVelX = 0.0
+                manualMagTargetX = null
+                updateInductionInstant(params)
+            }
+            ExperimentTopic.PHOTOELECTRIC -> {
+                photoElectrons.clear()
+                photoCurrentMa = 0.0
+                photoEmitAccum = 0.0
+            }
+            ExperimentTopic.RADIOACTIVE -> {
+                initRadioactiveNuclei(params)
             }
             ExperimentTopic.ORBITS -> {
                 val r0 = p(params, "orbitR", 1.2)
@@ -322,6 +384,52 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
             }
             ExperimentTopic.OPTICS -> Unit
             ExperimentTopic.WAVES -> Unit
+            ExperimentTopic.BUOYANCY -> {
+                if (changedKey == "liquidType") {
+                    val rho = when (newVal.toInt()) {
+                        0 -> 1000.0
+                        1 -> 800.0
+                        2 -> 1260.0
+                        else -> 13600.0
+                    }
+                    params["liquidDensity"] = rho
+                }
+                updateBuoyancySubmersion(params)
+            }
+            ExperimentTopic.INCLINED_PLANE -> {
+                if (changedKey == "pullForce" && newVal > 5.0 && slopePos > 8.5) {
+                    slopePos = 1.5
+                    slopeVel = 0.0
+                }
+            }
+            ExperimentTopic.ELECTROSTATICS -> {
+                if (changedKey in setOf("fieldMode", "v0", "charge")) {
+                    if (changedKey == "fieldMode") {
+                        when (newVal.toInt()) {
+                            0 -> { params["eField"] = 7.0; params["bField"] = 0.0 }
+                            1 -> { params["eField"] = 0.0; params["bField"] = 8.0 }
+                            else -> { params["eField"] = 8.0; params["bField"] = 8.0 }
+                        }
+                    }
+                    resetChargeParticle(params)
+                }
+            }
+            ExperimentTopic.ELECTROMAGNETIC -> {
+                updateInductionInstant(params)
+            }
+            ExperimentTopic.PHOTOELECTRIC -> Unit
+            ExperimentTopic.RADIOACTIVE -> {
+                if (changedKey == "isotope") {
+                    when (newVal.toInt()) {
+                        0 -> params["halfLife"] = 3.0
+                        1 -> params["halfLife"] = 7.0
+                        2 -> params["halfLife"] = 15.0
+                    }
+                    initRadioactiveNuclei(params)
+                } else if (changedKey == "nucleiCount") {
+                    initRadioactiveNuclei(params)
+                }
+            }
             ExperimentTopic.ORBITS -> {
                 if (simTime < 0.05 || changedKey in setOf("orbitR", "tangVel", "launchAngle")) {
                     if (simTime < 0.05) {
@@ -369,6 +477,12 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
                 ExperimentTopic.IDEAL_GAS -> stepIdealGas(h, params)
                 ExperimentTopic.OPTICS -> Unit
                 ExperimentTopic.WAVES -> stepWaves(h, params)
+                ExperimentTopic.BUOYANCY -> stepBuoyancy(h, params)
+                ExperimentTopic.INCLINED_PLANE -> stepInclinedPlane(h, params)
+                ExperimentTopic.ELECTROSTATICS -> stepElectrostatics(h, params)
+                ExperimentTopic.ELECTROMAGNETIC -> stepElectromagnetic(h, params)
+                ExperimentTopic.PHOTOELECTRIC -> stepPhotoelectric(h, params)
+                ExperimentTopic.RADIOACTIVE -> stepRadioactive(h, params)
                 ExperimentTopic.ORBITS -> stepOrbits(h, params)
             }
         }
@@ -726,6 +840,269 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
     private fun stepWaves(h: Double, params: Map<String, Double>) {
         val f = p(params, "frequency", 2.5)
         wavePhase += 2.0 * PI * f * h
+    }
+
+    private fun updateBuoyancySubmersion(params: Map<String, Double>) {
+        // Cube half-height in world [-1..1] units scaled lightly by volume
+        val volL = p(params, "bodyVolume", 2.0)
+        val halfH = 0.14 + 0.045 * cbrt(volL)
+        val bottomY = buoyY - halfH
+        val topY = buoyY + halfH
+        buoySubmergedFrac = when {
+            topY <= 0.0 -> 1.0
+            bottomY >= 0.0 -> 0.0
+            else -> (-bottomY / (2.0 * halfH)).coerceIn(0.0, 1.0)
+        }
+    }
+
+    private fun stepBuoyancy(h: Double, params: Map<String, Double>) {
+        val hold = p(params, "holdSensor", 0.0) >= 0.5
+        updateBuoyancySubmersion(params)
+        if (hold) {
+            buoyVy = 0.0
+            return
+        }
+        val rhoBody = max(100.0, p(params, "bodyDensity", 750.0))
+        val rhoLiq = max(100.0, p(params, "liquidDensity", 1000.0))
+        val g = p(params, "gravity", 9.81)
+        val aNet = g * ((rhoLiq * buoySubmergedFrac) / rhoBody - 1.0)
+        val drag = (0.35 + 4.8 * buoySubmergedFrac) * buoyVy
+        buoyVy += (aNet * 0.18 - drag) * h
+        buoyY += buoyVy * h
+
+        val volL = p(params, "bodyVolume", 2.0)
+        val halfH = 0.14 + 0.045 * cbrt(volL)
+        val floorY = -0.92 + halfH
+        val ceilY = 0.85 - halfH
+        if (buoyY < floorY) {
+            buoyY = floorY
+            if (buoyVy < 0) buoyVy = -buoyVy * 0.2
+        } else if (buoyY > ceilY) {
+            buoyY = ceilY
+            if (buoyVy > 0) buoyVy = 0.0
+        }
+        updateBuoyancySubmersion(params)
+    }
+
+    private fun stepInclinedPlane(h: Double, params: Map<String, Double>) {
+        val alphaRad = Math.toRadians(p(params, "slopeAngle", 28.0))
+        val m = max(0.2, p(params, "mass", 4.0))
+        val mu = p(params, "frictionMu", 0.25)
+        val fPull = p(params, "pullForce", 0.0)
+        val g = p(params, "gravity", 9.81)
+
+        val fDown = m * g * sin(alphaRad)
+        val nForce = m * g * cos(alphaRad)
+        val fFricMax = mu * nForce
+        val fDrive = fPull - fDown // + means up-slope
+
+        if (abs(slopeVel) < 0.03 && abs(fDrive) <= fFricMax) {
+            slopeVel = 0.0
+            slopeAccel = 0.0
+            slopeIsSliding = false
+        } else {
+            val fFric = if (abs(slopeVel) >= 0.03) -sign(slopeVel) * fFricMax else -sign(fDrive) * fFricMax
+            slopeAccel = (fDrive + fFric) / m
+            slopeVel += slopeAccel * h
+            slopePos += slopeVel * h
+            slopeIsSliding = abs(slopeVel) > 0.01
+        }
+
+        if (slopePos <= 0.4) {
+            slopePos = 0.4
+            if (slopeVel < 0) {
+                slopeVel = 0.0
+                slopeAccel = 0.0
+                slopeIsSliding = false
+            }
+        } else if (slopePos >= 9.6) {
+            slopePos = 9.6
+            if (slopeVel > 0) {
+                slopeVel = 0.0
+                slopeAccel = 0.0
+                slopeIsSliding = false
+            }
+        }
+    }
+
+    private fun resetChargeParticle(params: Map<String, Double>) {
+        val mode = p(params, "fieldMode", 0.0).toInt()
+        val v0 = p(params, "v0", 9.0)
+        chargeTrail.clear()
+        if (mode == 1) {
+            // Cyclotron starts near center moving +X so full orbit stays centered
+            chargePos = Vec2(5.0, -1.5)
+            chargeVel = Vec2(v0, 0.0)
+        } else {
+            chargePos = Vec2(0.5, 0.0)
+            chargeVel = Vec2(v0, 0.0)
+        }
+        chargeTrail.add(TracePoint(chargePos.x, chargePos.y, simTime))
+    }
+
+    private fun stepElectrostatics(h: Double, params: Map<String, Double>) {
+        val mode = p(params, "fieldMode", 0.0).toInt()
+        val q = p(params, "charge", 1.0)
+        val m = max(0.3, p(params, "massNum", 1.5))
+        val eField = p(params, "eField", 6.0)
+        val bField = p(params, "bField", 0.0)
+
+        val eUsed = if (mode == 1) 0.0 else eField
+        val bUsed = if (mode == 0) 0.0 else bField
+
+        fun acc(vx: Double, vy: Double): Pair<Double, Double> {
+            // F = q*(E_y + v x B_z): ax = (q/m)*(vy * B), ay = (q/m)*(E - vx * B)
+            val k = 0.45 * (q / m)
+            val ax = k * (vy * bUsed)
+            val ay = k * (eUsed * 1.6 - vx * bUsed)
+            return ax to ay
+        }
+
+        val (ax1, ay1) = acc(chargeVel.x, chargeVel.y)
+        val (ax2, ay2) = acc(chargeVel.x + 0.5 * h * ax1, chargeVel.y + 0.5 * h * ay1)
+        val (ax3, ay3) = acc(chargeVel.x + 0.5 * h * ax2, chargeVel.y + 0.5 * h * ay2)
+        val (ax4, ay4) = acc(chargeVel.x + h * ax3, chargeVel.y + h * ay3)
+
+        chargeVel.x += h * (ax1 + 2.0 * ax2 + 2.0 * ax3 + ax4) / 6.0
+        chargeVel.y += h * (ay1 + 2.0 * ay2 + 2.0 * ay3 + ay4) / 6.0
+        chargePos.x += chargeVel.x * h * 0.45
+        chargePos.y += chargeVel.y * h * 0.45
+
+        if (chargeTrail.isEmpty() || hypot(chargePos.x - chargeTrail.last().x, chargePos.y - chargeTrail.last().y) > 0.12) {
+            chargeTrail.add(TracePoint(chargePos.x, chargePos.y, simTime))
+            if (chargeTrail.size > 260) chargeTrail.removeAt(0)
+        }
+
+        if (chargePos.x < -0.5 || chargePos.x > 10.5 || abs(chargePos.y) > 4.2) {
+            resetChargeParticle(params)
+        }
+    }
+
+    private fun updateInductionInstant(params: Map<String, Double>) {
+        val turns = p(params, "turns", 80.0)
+        val b = p(params, "magStrength", 1.2)
+        val r = max(0.5, p(params, "coilRes", 10.0))
+        val pol = if (p(params, "polarity", 0.0) < 0.5) 1.0 else -1.0
+
+        val phiSingle = pol * b * exp(-6.0 * magPosX * magPosX) * 0.025 // Wb per turn
+        val dPhiDx = -12.0 * magPosX * phiSingle
+        magFlux = turns * phiSingle
+        inducedEmf = -turns * dPhiDx * magVelX
+        inducedCurrent = inducedEmf / r
+    }
+
+    private fun stepElectromagnetic(h: Double, params: Map<String, Double>) {
+        val auto = p(params, "autoOscillate", 1.0) >= 0.5
+        val f = p(params, "freq", 0.8)
+        if (auto) {
+            val w = 2.0 * PI * f
+            magPosX = 0.85 * sin(w * simTime)
+            magVelX = 0.85 * w * cos(w * simTime)
+        } else {
+            val tgt = manualMagTargetX
+            if (tgt != null) {
+                val prev = magPosX
+                magPosX = (magPosX + (tgt - magPosX) * min(1.0, h * 18.0)).coerceIn(-0.95, 0.95)
+                magVelX = (magPosX - prev) / max(1e-4, h)
+                if (abs(tgt - magPosX) < 0.002) {
+                    manualMagTargetX = null
+                    magVelX *= 0.5
+                }
+            } else {
+                magVelX *= max(0.0, 1.0 - h * 12.0)
+            }
+        }
+        updateInductionInstant(params)
+    }
+
+    fun getWorkFunctionEv(params: Map<String, Double>): Double = when (p(params, "cathodeMetal", 0.0).toInt()) {
+        0 -> 2.14 // Cesium
+        1 -> 2.30 // Potassium
+        2 -> 4.30 // Zinc
+        else -> 5.65 // Platinum
+    }
+
+    private fun stepPhotoelectric(h: Double, params: Map<String, Double>) {
+        val lambdaNm = max(100.0, p(params, "wavelengthNm", 400.0))
+        val intensity = p(params, "intensity", 65.0)
+        val uVolt = p(params, "voltage", 1.0)
+        val ePhotonEv = 1239.84 / lambdaNm
+        val aWorkEv = getWorkFunctionEv(params)
+        val ekMaxEv = max(0.0, ePhotonEv - aWorkEv)
+
+        if (ekMaxEv > 0.02) {
+            val emitRate = (intensity / 100.0) * 22.0
+            photoEmitAccum += emitRate * h
+            while (photoEmitAccum >= 1.0 && photoElectrons.size < 45) {
+                photoEmitAccum -= 1.0
+                val spd = 1.6 + 2.2 * sqrt(ekMaxEv) * (0.4 + 0.6 * nextRand())
+                val vy = (nextRand() - 0.5) * 0.6
+                val y = 0.15 + nextRand() * 0.70
+                photoElectrons.add(PhotoElectron(0.08, y, spd, vy, true))
+            }
+        }
+
+        var hits = 0
+        val accX = uVolt * 2.4
+        val it = photoElectrons.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            e.vx += accX * h
+            e.x += e.vx * h * 0.38
+            e.y += e.vy * h * 0.25
+            if (e.x >= 0.92) {
+                hits++
+                it.remove()
+            } else if (e.x <= 0.04 || e.y <= 0.05 || e.y >= 0.95) {
+                it.remove()
+            }
+        }
+
+        // Smooth steady-state photocurrent calculation in mA
+        val targetI = if (ekMaxEv <= 0.0) {
+            0.0
+        } else {
+            val stoppingU = -ekMaxEv
+            if (uVolt <= stoppingU) 0.0
+            else {
+                val sat = (intensity / 100.0) * 12.0 * (ekMaxEv / (ekMaxEv + 1.2))
+                val frac = ((uVolt - stoppingU) / (ekMaxEv + 0.6)).coerceIn(0.0, 1.0)
+                sat * frac
+            }
+        }
+        photoCurrentMa += (targetI - photoCurrentMa) * min(1.0, h * 8.0) + hits * 0.0
+    }
+
+    private fun initRadioactiveNuclei(params: Map<String, Double>) {
+        val count = p(params, "nucleiCount", 225.0).toInt().coerceIn(36, 400)
+        decayAtoms.clear()
+        repeat(count) { decayAtoms.add(DecayAtom(decayed = false, flash = 0.0)) }
+        aliveNuclei = count
+        decayedNuclei = 0
+    }
+
+    private fun stepRadioactive(h: Double, params: Map<String, Double>) {
+        val halfLife = max(0.5, p(params, "halfLife", 4.0))
+        val lambda = ln(2.0) / halfLife
+        val prob = 1.0 - exp(-lambda * h)
+        var alive = 0
+        var decayed = 0
+        for (atom in decayAtoms) {
+            if (!atom.decayed) {
+                if (nextRand() < prob) {
+                    atom.decayed = true
+                    atom.flash = 1.0
+                    decayed++
+                } else {
+                    alive++
+                }
+            } else {
+                if (atom.flash > 0.0) atom.flash = max(0.0, atom.flash - h * 2.8)
+                decayed++
+            }
+        }
+        aliveNuclei = alive
+        decayedNuclei = decayed
     }
 
     private fun stepOrbits(h: Double, params: Map<String, Double>) {
@@ -1159,6 +1536,235 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
                 )
             )
         }
+        ExperimentTopic.BUOYANCY -> {
+            val rhoB = p(params, "bodyDensity", 750.0)
+            val rhoL = p(params, "liquidDensity", 1000.0)
+            val volL = p(params, "bodyVolume", 2.0)
+            val volM3 = volL / 1000.0
+            val g = p(params, "gravity", 9.81)
+            val fG = rhoB * volM3 * g
+            val fA = rhoL * volM3 * buoySubmergedFrac * g
+            val hold = p(params, "holdSensor", 0.0) >= 0.5
+            val dynWeight = max(0.0, fG - fA)
+
+            val (pt, pd) = when {
+                hold -> "Замер динамометром" to
+                    "Вес в воздухе P = ${fmt(fG, 1)} Н, выталкивающая сила F_A = ${fmt(fA, 1)} Н. Показание динамометра P − F_A = ${fmt(dynWeight, 1)} Н."
+                rhoB > rhoL * 1.02 -> "Тело тонет (ρ_т > ρ_ж)" to
+                    "Плотность тела (${fmt(rhoB, 0)} кг/м³) больше плотности жидкости (${fmt(rhoL, 0)}). Сила тяжести (${fmt(fG, 1)} Н) сильнее максимальной силы Архимеда."
+                buoySubmergedFrac > 0.02 && buoySubmergedFrac < 0.99 -> "Равновесие на поверхности (F_A = mg)" to
+                    "Тело погружено на ${fmt(buoySubmergedFrac * 100.0, 0)}%. Сила Архимеда (${fmt(fA, 1)} Н) в точности уравновесила силу тяжести (${fmt(fG, 1)} Н)."
+                else -> "Всплытие / свободное движение" to
+                    "При плотности ${fmt(rhoB, 0)} < ${fmt(rhoL, 0)} кг/м³ выталкивающая сила поднимает тело к поверхности."
+            }
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = pt,
+                phaseDetail = pd,
+                liveFormula = "F_A = ρ_ж·g·V_погр = ${fmt(fA, 2)} Н | F_тяж = ${fmt(fG, 2)} Н",
+                metrics = listOf(
+                    MetricItem("Сила Архимеда", fmt(fA, 2), "Н", 0xFF38BDF8),
+                    MetricItem("Сила тяжести", fmt(fG, 2), "Н", 0xFFEF4444),
+                    MetricItem("Погружено", fmt(buoySubmergedFrac * 100.0, 0), "%", 0xFF2DD4BF),
+                    MetricItem(if (hold) "Динамометр" else "Вес в жидк.", fmt(dynWeight, 2), "Н", 0xFFF59E0B)
+                ),
+                energyKinetic = 0.5 * (rhoB * volM3) * buoyVy * buoyVy,
+                energyPotential = (rhoB * volM3) * g * (buoyY + 1.0),
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("F_Арх", "Н", 0xFF38BDF8, fA),
+                    GraphChannel("F_тяж", "Н", 0xFFEF4444, fG),
+                    GraphChannel("Погр.%", "%", 0xFF2DD4BF, buoySubmergedFrac * 100.0),
+                    GraphChannel("Высота", "у.е.", 0xFFF59E0B, buoyY)
+                )
+            )
+        }
+        ExperimentTopic.INCLINED_PLANE -> {
+            val alpha = p(params, "slopeAngle", 28.0)
+            val rad = Math.toRadians(alpha)
+            val m = p(params, "mass", 4.0)
+            val mu = p(params, "frictionMu", 0.25)
+            val fPull = p(params, "pullForce", 0.0)
+            val g = p(params, "gravity", 9.81)
+            val fDown = m * g * sin(rad)
+            val nForce = m * g * cos(rad)
+            val fFricMax = mu * nForce
+            val eff = if (fPull > fDown * 0.5) ((fDown / max(1.0, fPull)) * 100.0).coerceIn(0.0, 100.0) else 0.0
+
+            val (pt, pd) = when {
+                !slopeIsSliding && abs(slopeVel) < 0.02 -> "Покой (удерживает трение)" to
+                    "Скатывающая сила ${fmt(fDown, 1)} Н (и тяга ${fmt(fPull, 0)} Н) не превысили макс. трение покоя ${fmt(fFricMax, 1)} Н."
+                slopeVel > 0.02 -> "Подъём вверх по склону" to
+                    "Тяга F = ${fmt(fPull, 0)} Н преодолела сумму скатывающей силы и трения. Ускорение a = +${fmt(slopeAccel, 2)} м/с², КПД η = ${fmt(eff, 0)}%."
+                else -> "Скольжение вниз по склону" to
+                    "tg(${fmt(alpha, 0)}°) = ${fmt(tan(rad), 2)} > μ = ${fmt(mu, 2)}! Брусок разгоняется вниз с ускорением ${fmt(abs(slopeAccel), 2)} м/с²."
+            }
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = pt,
+                phaseDetail = pd,
+                liveFormula = "mg·sin(α) = ${fmt(fDown, 1)} Н | F_тр,max = μ·mg·cos(α) = ${fmt(fFricMax, 1)} Н",
+                metrics = listOf(
+                    MetricItem("Скатыв. F_ск", fmt(fDown, 1), "Н", 0xFFF59E0B),
+                    MetricItem("Трение max", fmt(fFricMax, 1), "Н", 0xFFEF4444),
+                    MetricItem("Ускорение a", fmt(slopeAccel, 2), "м/с²", 0xFF38BDF8),
+                    MetricItem("Скорость v", fmt(slopeVel, 2), "м/с", 0xFF2DD4BF)
+                ),
+                energyKinetic = 0.5 * m * slopeVel * slopeVel,
+                energyPotential = m * g * slopePos * sin(rad),
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("Скорость", "м/с", 0xFF2DD4BF, slopeVel),
+                    GraphChannel("Ускор. a", "м/с²", 0xFF38BDF8, slopeAccel),
+                    GraphChannel("F_ск", "Н", 0xFFF59E0B, fDown),
+                    GraphChannel("F_тр,max", "Н", 0xFFEF4444, fFricMax)
+                )
+            )
+        }
+        ExperimentTopic.ELECTROSTATICS -> {
+            val mode = p(params, "fieldMode", 0.0).toInt()
+            val q = p(params, "charge", 1.0)
+            val m = max(0.3, p(params, "massNum", 1.5))
+            val eF = if (mode == 1) 0.0 else p(params, "eField", 6.0)
+            val bF = if (mode == 0) 0.0 else p(params, "bField", 0.0)
+            val v = hypot(chargeVel.x, chargeVel.y)
+            val rCyc = if (abs(q * bF) > 0.1) (m * v) / abs(q * bF * 0.45) else 999.0
+
+            val (pt, pd) = when (mode) {
+                0 -> "Отклонение заряда в электрическом поле E" to
+                    "На заряд q = ${q.toInt()}е действует постоянная вертикальная сила qE, изгибая траекторию в параболу (принцип электронно-лучевой трубки)."
+                1 -> "Циклотрон: круговая орбита в магнитном поле B" to
+                    "Сила Лоренца всегда перпендикулярна скорости: работа поля равна 0, модуль скорости v = ${fmt(v, 1)} постоянен, радиус орбиты R ≈ ${fmt(rCyc, 2)}."
+                else -> "Фильтр скоростей (E ⊥ B)" to
+                    if (abs(eF * 1.6 - chargeVel.x * bF) < 2.0) "Баланс сил qE ≈ qvB — частица летит почти прямо! Это принцип отбора частиц по скорости."
+                    else "Силы qE и qvB не равны — луч отклоняется в сторону более сильного поля."
+            }
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = pt,
+                phaseDetail = pd,
+                liveFormula = "F_E = qE (${fmt(q * eF, 1)}) | F_L = qvB (${fmt(abs(q * v * bF), 1)})",
+                metrics = listOf(
+                    MetricItem("Скорость |v|", fmt(v, 2), "у.е.", 0xFF38BDF8),
+                    MetricItem("Позиция y", fmt(chargePos.y, 2), "у.е.", 0xFFF59E0B),
+                    MetricItem("Радиус R_ц", if (rCyc > 100) "∞" else fmt(rCyc, 2), "у.е.", 0xFFA855F7),
+                    MetricItem("Заряд q", "${q.toInt()}", "е", 0xFF2DD4BF)
+                ),
+                energyKinetic = 0.5 * m * v * v,
+                energyPotential = abs(q * eF * chargePos.y),
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("y", "у.е.", 0xFFF59E0B, chargePos.y),
+                    GraphChannel("v_x", "у.е.", 0xFF38BDF8, chargeVel.x),
+                    GraphChannel("v_y", "у.е.", 0xFF2DD4BF, chargeVel.y),
+                    GraphChannel("|v|", "у.е.", 0xFFA855F7, v)
+                )
+            )
+        }
+        ExperimentTopic.ELECTROMAGNETIC -> {
+            val n = p(params, "turns", 80.0)
+            val moving = abs(magVelX) > 0.05
+            val (pt, pd) = if (moving) {
+                "Индукция тока (правило Ленца)" to
+                    "Магнит движется со скоростью v = ${fmt(magVelX, 2)}: поток через $n витков меняется, наводя ЭДС ε_i = ${fmt(inducedEmf, 2)} В и ток ${fmt(inducedCurrent * 1000.0, 0)} мА."
+            } else {
+                "Магнит неподвижен — тока нет (ΔΦ = 0)" to
+                    "Даже сильный магнит внутри катушки НЕ создаёт ток, пока поток Φ не меняется во времени. Сдвинь магнит пальцем или включи колебания!"
+            }
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = pt,
+                phaseDetail = pd,
+                liveFormula = "ε_i = −N·(dΦ/dt) = ${fmt(inducedEmf, 2)} В | I = ${fmt(inducedCurrent * 1000.0, 0)} мА",
+                metrics = listOf(
+                    MetricItem("ЭДС индукц.", fmt(inducedEmf, 2), "В", 0xFFFACC15),
+                    MetricItem("Ток катушки", fmt(inducedCurrent * 1000.0, 0), "мА", 0xFF38BDF8),
+                    MetricItem("Поток N·Φ", fmt(magFlux, 2), "Вб", 0xFFA855F7),
+                    MetricItem("Скорость v", fmt(magVelX, 2), "у.е./с", 0xFF2DD4BF)
+                ),
+                energyKinetic = abs(inducedEmf * inducedCurrent),
+                energyPotential = abs(magFlux),
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("ЭДС ε_i", "В", 0xFFFACC15, inducedEmf),
+                    GraphChannel("Поток Φ", "Вб", 0xFFA855F7, magFlux),
+                    GraphChannel("Ток (мА)", "мА", 0xFF38BDF8, inducedCurrent * 1000.0),
+                    GraphChannel("Поз. x", "у.е.", 0xFF2DD4BF, magPosX)
+                )
+            )
+        }
+        ExperimentTopic.PHOTOELECTRIC -> {
+            val lambdaNm = p(params, "wavelengthNm", 400.0)
+            val ePhot = 1239.84 / lambdaNm
+            val aWork = getWorkFunctionEv(params)
+            val ekMax = max(0.0, ePhot - aWork)
+            val lambdaRed = 1239.84 / aWork
+            val uVolt = p(params, "voltage", 1.0)
+
+            val (pt, pd) = when {
+                ekMax <= 0.0 -> "Фотоэффект НЕ идёт (λ > λ_кр)" to
+                    "Энергия фотона (${fmt(ePhot, 2)} эВ) меньше работы выхода (${fmt(aWork, 2)} эВ). Красная граница λ_кр = ${fmt(lambdaRed, 0)} нм — уменьши длину волны!"
+                uVolt <= -ekMax -> "Электроны остановлены полем (U ≤ −U_з)" to
+                    "Задерживающее напряжение ${fmt(uVolt, 1)} В разворачивает даже самые быстрые фотоэлектроны (E_k,max = ${fmt(ekMax, 2)} эВ), фототок упал до 0."
+                else -> "Фотоэлектроны летят к аноду!" to
+                    "Каждый фотон выбивает электрон с макс. энергией ${fmt(ekMax, 2)} эВ. Чем ярче свет, тем больше фотоэлектронов вылетает в секунду."
+            }
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = pt,
+                phaseDetail = pd,
+                liveFormula = "hν(${fmt(ePhot, 2)} эВ) = A(${fmt(aWork, 2)}) + E_k(${fmt(ekMax, 2)} эВ) | λ_кр = ${fmt(lambdaRed, 0)} нм",
+                metrics = listOf(
+                    MetricItem("Фототок I", fmt(photoCurrentMa, 2), "мА", 0xFF38BDF8),
+                    MetricItem("Фотон hν", fmt(ePhot, 2), "эВ", 0xFFA855F7),
+                    MetricItem("Макс. E_k", fmt(ekMax, 2), "эВ", 0xFF22C55E),
+                    MetricItem("Красн. гран.", fmt(lambdaRed, 0), "нм", 0xFFEF4444)
+                ),
+                energyKinetic = ekMax,
+                energyPotential = aWork,
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("Ток I", "мА", 0xFF38BDF8, photoCurrentMa),
+                    GraphChannel("E_k,max", "эВ", 0xFF22C55E, ekMax),
+                    GraphChannel("hν", "эВ", 0xFFA855F7, ePhot),
+                    GraphChannel("Напр. U", "В", 0xFFF59E0B, uVolt)
+                )
+            )
+        }
+        ExperimentTopic.RADIOACTIVE -> {
+            val n0 = decayAtoms.size.coerceAtLeast(1)
+            val tHalf = max(0.5, p(params, "halfLife", 4.0))
+            val lambda = ln(2.0) / tHalf
+            val nTheo = n0 * 2.0.pow(-simTime / tHalf)
+            val activity = lambda * aliveNuclei
+
+            TelemetrySnapshot(
+                simTime = simTime,
+                phaseTitle = "Распад ядер (прошло ${fmt(simTime / tHalf, 2)} периодов T₁/₂)",
+                phaseDetail = "Осталось $aliveNuclei из $n0 активных ядер (распад ${fmt(100.0 * decayedNuclei / n0, 0)}%). Теория даёт N_теор ≈ ${fmt(nTheo, 0)} ядер.",
+                liveFormula = "N(t) = $n0·2^(−${fmt(simTime, 1)}/${fmt(tHalf, 1)}) ≈ ${fmt(nTheo, 0)} | A = ${fmt(activity, 1)} Бк",
+                metrics = listOf(
+                    MetricItem("Осталось N", "$aliveNuclei", "ядер", 0xFF22C55E),
+                    MetricItem("Распад ΔN", "$decayedNuclei", "ядер", 0xFFA855F7),
+                    MetricItem("Теория N(t)", fmt(nTheo, 0), "ядер", 0xFF38BDF8),
+                    MetricItem("Активность", fmt(activity, 1), "Бк", 0xFFF59E0B)
+                ),
+                energyKinetic = aliveNuclei.toDouble(),
+                energyPotential = decayedNuclei.toDouble(),
+                energyLost = 0.0,
+                graphChannels = listOf(
+                    GraphChannel("Осталось N", "шт", 0xFF22C55E, aliveNuclei.toDouble()),
+                    GraphChannel("Теория N", "шт", 0xFF38BDF8, nTheo),
+                    GraphChannel("Распалось", "шт", 0xFFA855F7, decayedNuclei.toDouble()),
+                    GraphChannel("Активность", "Бк", 0xFFF59E0B, activity)
+                )
+            )
+        }
         ExperimentTopic.ORBITS -> {
             val mStar = p(params, "starMass", 1.0)
             val gm = 4.0 * PI * PI * mStar
@@ -1244,6 +1850,19 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
                 ExperimentTopic.WAVES to "waveMode" ->
                     if (newVal < 0.5) "Режим стоячей волны: наложение прямой и отражённой волн образует неподвижные узлы и пучности."
                     else "Режим интерференции: два когерентных источника создают полосы максимумов и минимумов на экране."
+                ExperimentTopic.BUOYANCY to "liquidType" ->
+                    "Выбрана жидкость «$choiceName»: от плотности ρ_ж зависит сила Архимеда F_A = ρ_ж·g·V_погр."
+                ExperimentTopic.ELECTROSTATICS to "fieldMode" -> when (newVal.toInt()) {
+                    0 -> "Конденсатор: однородное электрическое поле отклоняет заряд по параболе."
+                    1 -> "Циклотрон: магнитное поле B закручивает движущийся заряд по окружности."
+                    else -> "Фильтр скоростей: при qE = qvB силы компенсируют друг друга и частица летит прямо."
+                }
+                ExperimentTopic.ELECTROMAGNETIC to "polarity" ->
+                    "Перевёрнут полюс магнита ($choiceName): при том же движении знак ЭДС индукции и направление тока меняются на противоположные!"
+                ExperimentTopic.PHOTOELECTRIC to "cathodeMetal" ->
+                    "Выбран металл катода ($choiceName): чем больше работа выхода, тем более коротковолновый (синий/УФ) свет нужен для выбивания электронов."
+                ExperimentTopic.RADIOACTIVE to "isotope" ->
+                    "Выбран изотоп ($choiceName): у каждого изотопа свой строго постоянный период полураспада T₁/₂."
                 else -> "Выбран режим «$choiceName»."
             }
             return "$label → $choiceName" to detail
@@ -1260,6 +1879,10 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
                 else "Включён монохроматический жёлтый луч лазера."
                 "showSweptArea" -> if (on) "Включены сектора Кеплера: за равные промежутки времени радиус-вектор заметает равные площади."
                 else "Сектора Кеплера скрыты."
+                "holdSensor" -> if (on) "Тело подвешено к динамометру: можно тянуть его пальцем вверх/вниз и наблюдать уменьшение веса в воде."
+                else "Тело отпущено в свободное плавание под действием тяжести и силы Архимеда."
+                "autoOscillate" -> if (on) "Магнит автоматически ходит через катушку, генерируя переменный индукционный ток."
+                else "Автодвижение выключено: теперь двигай магнит через катушку пальцем вручную!"
                 else -> if (on) "Опция включена." else "Опция выключена."
             }
             return "$label: ${if (on) "ВКЛ" else "ВЫКЛ"}" to detail
@@ -1345,6 +1968,45 @@ class PhysicsEngine(var topic: ExperimentTopic = ExperimentTopic.BALLISTICS) {
                 "Увеличение расстояния между источниками d сужает интерференционные полосы на экране."
             ExperimentTopic.WAVES to "phaseShift" ->
                 "Сдвиг фаз Δφ = ${fmt(newVal, 0)}° смещает всю интерференционную картину: при 180° на месте центрального максимума возникает тёмный минимум!"
+
+            ExperimentTopic.BUOYANCY to "bodyDensity" ->
+                "Если плотность тела меньше плотности жидкости, тело всплывёт; если больше — утонет (сейчас ${fmt(newVal, 0)} кг/м³)."
+            ExperimentTopic.BUOYANCY to "liquidDensity" ->
+                "Более плотная жидкость (например, солёная вода или ртуть) сильнее выталкивает погружённое тело: F_A = ρ_ж·g·V_погр."
+            ExperimentTopic.BUOYANCY to "bodyVolume" ->
+                "При росте объёма пропорционально растут и масса тела, и выталкивающая сила Архимеда."
+
+            ExperimentTopic.INCLINED_PLANE to "slopeAngle" ->
+                "Рост угла α увеличивает скатывающую силу mg·sin(α) и уменьшает прижимающую силу трения μ·mg·cos(α)."
+            ExperimentTopic.INCLINED_PLANE to "frictionMu" ->
+                "Коэффициент трения μ = ${fmt(newVal, 2)}: срыв в скольжение происходит, когда tg(α) превысит μ."
+            ExperimentTopic.INCLINED_PLANE to "pullForce" ->
+                "Тяга F = ${fmt(newVal, 0)} Н тянет брусок вверх по склону, преодолевая скатывающую силу и трение."
+
+            ExperimentTopic.ELECTROSTATICS to "charge" ->
+                if (newVal == 0.0) "Нейтральная частица (q = 0): ни электрическое, ни магнитное поля на неё не действуют!"
+                else "Увеличение заряда q усиливает силы F = qE и qvB; смена знака меняет направление отклонения на противоположное."
+            ExperimentTopic.ELECTROSTATICS to "eField" ->
+                "Напряжённость поля E напрямую задаёт вертикальное ускорение заряда между пластинами конденсатора."
+            ExperimentTopic.ELECTROSTATICS to "bField" ->
+                "Увеличение магнитного поля B сильнее закручивает траекторию — радиус окружности R = mv/(|q|B) уменьшается."
+
+            ExperimentTopic.ELECTROMAGNETIC to "turns" ->
+                "По закону Фарадея ЭДС пропорциональна числу витков катушки N — каждый виток суммирует напряжение!"
+            ExperimentTopic.ELECTROMAGNETIC to "magStrength", ExperimentTopic.ELECTROMAGNETIC to "freq" ->
+                "Чем сильнее магнит и быстрее меняется магнитный поток dΦ/dt, тем больше всплеск ЭДС индукции и тока."
+
+            ExperimentTopic.PHOTOELECTRIC to "wavelengthNm" ->
+                "Энергия фотона E = hc/λ растёт при уменьшении длины волны (к синему/УФ свету). Выше красной границы λ_кр фотоэффект прекращается."
+            ExperimentTopic.PHOTOELECTRIC to "intensity" ->
+                "Яркость света меняет число фотонов в секунду (и силу фототока I), но НЕ меняет энергию каждого электрона!"
+            ExperimentTopic.PHOTOELECTRIC to "voltage" ->
+                "Положительное U помогает электронам долететь до анода (ток насыщения); отрицательное тормозит их до полной остановки при U_з."
+
+            ExperimentTopic.RADIOACTIVE to "halfLife" ->
+                "Период полураспада T₁/₂ = ${fmt(newVal, 1)} с — время, за которое распадается ровно половина оставшихся ядер."
+            ExperimentTopic.RADIOACTIVE to "nucleiCount" ->
+                "Чем больше ядер N₀, тем точнее случайный распад следует гладкой теоретической кривой N₀·2^(−t/T₁/₂)."
 
             ExperimentTopic.ORBITS to "starMass" ->
                 "Увеличение массы звезды M увеличивает гравитационное притяжение GMm/r² — для удержания на той же орбите планете нужна большая скорость v₁ ~ √M."
