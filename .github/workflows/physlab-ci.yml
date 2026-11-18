@@ -1,0 +1,73 @@
+name: Build PhysLab APK
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'apps/physlab/**'
+      - '.github/workflows/physlab-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-physlab-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Run PhysLab unit tests & build signed release APK
+        working-directory: apps/physlab/android
+        env:
+          KEYSTORE_PATH: /tmp/physlab-release.jks
+          KEYSTORE_PASS: xloneroom2026
+          KEY_ALIAS: physlab
+          KEY_PASS: xloneroom2026
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASS" \
+            -alias "$KEY_ALIAS" \
+            -keypass "$KEY_PASS" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=PhysLab, O=Xlone-room, C=KZ"
+          gradle testReleaseUnitTest assembleRelease --no-daemon
+
+      - name: Package & verify PhysLab APK size
+        run: |
+          APK_SRC="apps/physlab/android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK_SRC"
+          cp "$APK_SRC" PhysLab.apk
+          ls -lh PhysLab.apk
+          SIZE_KB=$(du -sk PhysLab.apk | cut -f1)
+          echo "PhysLab APK size: ${SIZE_KB} KB"
+
+      - name: Upload PhysLab APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhysLab-apk
+          path: PhysLab.apk
+
+      - name: Publish GitHub Release with direct PhysLab APK link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="physlab-v1.0.${{ github.run_number }}"
+          SIZE_H=$(du -sh PhysLab.apk | cut -f1)
+          gh release create "$TAG" PhysLab.apk \
+            --target "${{ github.sha }}" \
+            --title "PhysLab v1.0.${{ github.run_number }} (Pure Native Android Physics Laboratory)" \
+            --notes "Чистое нативное Android-приложение PhysLab (${SIZE_H}): 8 реалистичных физических лабораторий (баллистика, маятники, столкновения, цепи, идеальный газ, оптика, волны, орбиты), плавные нативные слайдеры и прямые жесты на холсте, комнаты лабораторных работ, автоматический журнал с объяснением каждого изменения и экспорт отчёта."
