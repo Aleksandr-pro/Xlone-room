@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.*
+import com.xloneroom.physlab.engine.AutoLabRunner
 import com.xloneroom.physlab.engine.PhysicsEngine
 import com.xloneroom.physlab.model.*
 import com.xloneroom.physlab.storage.RoomRepository
@@ -799,7 +800,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val badgeColor = when (entry.kind) {
                 "EVENT" -> UiTheme.YELLOW
                 "MEASURE" -> UiTheme.GREEN
-                "ROOM" -> UiTheme.PURPLE
+                "ROOM", "AUTO" -> UiTheme.PURPLE
                 else -> UiTheme.ACCENT
             }
             val card = LinearLayout(this).apply {
@@ -931,7 +932,76 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             tabContentBox.addView(card)
         }
 
-        // 2. Ready School Lab Works (filtered by branch)
+        // 2. Automatic senior-school lab series. Each button runs the real local model and saves a report table.
+        val filteredAutoLabs = ExperimentTopic.autoLabWorks10To11().filter {
+            selectedBranchFilter == null || it.topic.branch == selectedBranchFilter
+        }
+        if (filteredAutoLabs.isNotEmpty()) {
+            tabContentBox.addView(TextView(this).apply {
+                text = "⚙ Автолаборатории 10–11 классы (${filteredAutoLabs.size})"
+                textSize = 14f
+                setTextColor(UiTheme.TEXT_PRIMARY)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                setPadding(0, dp(8), 0, dp(3))
+            })
+            tabContentBox.addView(TextView(this).apply {
+                text = "Сами выставляют условия, проводят серию расчётов и сохраняют реальные показания модели в отчёт."
+                textSize = 11.5f
+                setTextColor(UiTheme.TEXT_MUTED)
+                setPadding(0, 0, 0, dp(7))
+            })
+            for (lab in filteredAutoLabs) {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = roundedRect(UiTheme.BG_CARD, 16f, this@MainActivity, UiTheme.PURPLE, 1f)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(7)
+                    }
+                }
+                val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                top.addView(TextView(this).apply {
+                    text = "⚙ ${lab.topic.branch.title}"
+                    textSize = 10.5f
+                    setTextColor(UiTheme.PURPLE)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                top.addView(TextView(this).apply {
+                    text = lab.grade
+                    textSize = 10.5f
+                    setTextColor(UiTheme.YELLOW)
+                })
+                card.addView(top)
+                card.addView(TextView(this).apply {
+                    text = lab.title
+                    textSize = 13.5f
+                    setTextColor(UiTheme.TEXT_PRIMARY)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setPadding(0, dp(2), 0, dp(2))
+                })
+                card.addView(TextView(this).apply {
+                    text = "Цель: ${lab.goal}"
+                    textSize = 12f
+                    setTextColor(UiTheme.TEXT_MUTED)
+                    setPadding(0, 0, 0, dp(3))
+                })
+                card.addView(TextView(this).apply {
+                    text = "${lab.steps.size} авто-замера: ${lab.steps.joinToString(" → ") { it.title }}"
+                    textSize = 11f
+                    setTextColor(UiTheme.PURPLE)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    setPadding(0, 0, 0, dp(7))
+                })
+                card.addView(makePillButton(this, "⚙ Запустить авто-серию", UiTheme.PURPLE, UiTheme.TEXT_PRIMARY, 0, 12f, 12f, 6f) {
+                    startAutomaticLab(lab)
+                })
+                tabContentBox.addView(card)
+            }
+        }
+
+        // 3. Ready school lab works (filtered by branch)
         val filteredLabs = ExperimentTopic.readyLabWorks().filter {
             selectedBranchFilter == null || it.topic.branch == selectedBranchFilter
         }
@@ -994,7 +1064,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
         }
 
-        // 3. Full Catalog of 14 Physics Topics
+        // 4. Full Catalog of 14 Physics Topics
         val filteredTopics = ExperimentTopic.entries.filter {
             selectedBranchFilter == null || it.branch == selectedBranchFilter
         }
@@ -1122,6 +1192,93 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
             .setNegativeButton("Отмена", null)
             .show()
+    }
+
+    /** Creates a fresh room, runs the selected scripted series through PhysicsEngine and persists every snapshot. */
+    private fun startAutomaticLab(lab: AutoLabWork) {
+        val room = repo.createRoom(
+            name = lab.title,
+            studentName = activeRoom.studentName,
+            goal = lab.goal,
+            topic = lab.topic
+        )
+        val result = AutoLabRunner.run(lab)
+        val descriptors = lab.topic.descriptors().associateBy { it.key }
+        val now = System.currentTimeMillis()
+
+        for (sample in result.samples) {
+            val values = linkedMapOf<String, String>()
+            values["Этап"] = sample.step.title
+            values["Условия"] = formatAutoConditions(descriptors, sample.step.params)
+            for (metric in sample.snapshot.metrics) {
+                values[metric.label] = "${metric.value} ${metric.unit}".trim()
+            }
+            values["Расчёт"] = sample.snapshot.liveFormula
+
+            room.measurements.add(
+                MeasurementRow(
+                    index = sample.index,
+                    simTimeSec = sample.snapshot.simTime,
+                    note = sample.step.title,
+                    values = values
+                )
+            )
+            room.completedTaskIds.add(sample.step.id)
+            val readingSummary = sample.snapshot.metrics.take(3).joinToString(", ") { "${it.label}: ${it.value} ${it.unit}".trim() }
+            room.journal.add(
+                0,
+                ChangeLogEntry(
+                    id = "auto_${lab.id}_${sample.step.id}",
+                    simTimeSec = sample.snapshot.simTime,
+                    wallTimeMs = now,
+                    kind = "AUTO",
+                    title = "Автоэтап ${sample.index}/${lab.steps.size}: ${sample.step.title}",
+                    detail = "${sample.step.instruction} Показания: $readingSummary"
+                )
+            )
+        }
+        room.params.clear()
+        room.params.putAll(result.finalParams)
+        room.updatedAt = now
+        room.journal.add(
+            0,
+            ChangeLogEntry(
+                id = "auto_done_${lab.id}_$now",
+                simTimeSec = result.samples.lastOrNull()?.snapshot?.simTime ?: 0.0,
+                wallTimeMs = now,
+                kind = "AUTO",
+                title = "Автосерия завершена: ${lab.steps.size} замера",
+                detail = "Вывод: ${lab.expectedConclusion} Все значения получены локальной моделью PhysLab и добавлены в отчёт."
+            )
+        )
+
+        rooms.add(0, room)
+        loadRoomIntoEngine(room, switchToControls = true)
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Автосерия завершена")
+            .setMessage(
+                "${lab.title}\n\nСохранено измерений: ${result.samples.size}. " +
+                    "Они уже находятся в комнате и войдут в текстовый отчёт.\n\nВывод:\n${lab.expectedConclusion}"
+            )
+            .setPositiveButton("К журналу и отчёту") { _, _ -> switchTab(2) }
+            .setNegativeButton("К установке", null)
+            .show()
+    }
+
+    private fun formatAutoConditions(
+        descriptors: Map<String, ParamDescriptor>,
+        values: Map<String, Double>
+    ): String = values.entries.joinToString("; ") { (key, value) ->
+        val desc = descriptors[key]
+        if (desc == null) "$key = ${PhysicsEngine.fmt(value, 2)}"
+        else {
+            val formatted = when (desc.kind) {
+                ParamKind.TOGGLE -> if (value >= 0.5) "ВКЛ" else "ВЫКЛ"
+                ParamKind.CHOICE -> desc.choices.getOrNull(value.toInt()) ?: value.toInt().toString()
+                ParamKind.SLIDER -> "${PhysicsEngine.fmt(value, desc.decimals)} ${desc.unit}".trim()
+            }
+            "${desc.label}: $formatted"
+        }
     }
 
     private fun shareLabReport(room: LabRoom) {

@@ -1,5 +1,6 @@
 package com.xloneroom.physlab
 
+import com.xloneroom.physlab.engine.AutoLabRunner
 import com.xloneroom.physlab.engine.PhysicsEngine
 import com.xloneroom.physlab.model.*
 import com.xloneroom.physlab.storage.RoomRepository
@@ -287,6 +288,43 @@ class PhysicsEngineTest {
             val defaults = lw.topic.defaultParams()
             for (k in lw.initialParams.keys) {
                 assertTrue("ReadyLab ${lw.id} uses unknown param $k", defaults.containsKey(k))
+            }
+        }
+    }
+
+    @Test
+    fun automaticSeniorLabWorksAreCompleteAndRunOnTheRealEngine() {
+        val labs = ExperimentTopic.autoLabWorks10To11()
+        assertEquals("Six automatic labs per senior grade", 12, labs.size)
+        assertEquals(6, labs.count { it.grade == "10 класс" })
+        assertEquals(6, labs.count { it.grade == "11 класс" })
+        assertEquals(labs.size, labs.map { it.id }.toSet().size)
+
+        for (lab in labs) {
+            assertTrue(lab.title.isNotBlank())
+            assertTrue(lab.goal.isNotBlank())
+            assertTrue(lab.expectedConclusion.isNotBlank())
+            assertTrue("${lab.id} needs at least two measured conditions", lab.steps.size >= 2)
+            val allowedParams = lab.topic.defaultParams().keys
+            assertEquals(lab.steps.size, lab.steps.map { it.id }.toSet().size)
+            for (step in lab.steps) {
+                assertTrue(step.title.isNotBlank())
+                assertTrue(step.instruction.isNotBlank())
+                assertTrue("${lab.id}:${step.id} must advance the simulation", step.durationSec > 0.0)
+                assertTrue(
+                    "${lab.id}:${step.id} has an unknown parameter",
+                    step.params.keys.all { it in allowedParams }
+                )
+            }
+
+            val run = AutoLabRunner.run(lab)
+            assertEquals(lab.steps.size, run.samples.size)
+            assertEquals(lab.steps.last().params, run.finalParams.filterKeys { it in lab.steps.last().params })
+            for (sample in run.samples) {
+                assertTrue(sample.snapshot.metrics.isNotEmpty())
+                assertTrue(sample.snapshot.phaseTitle.isNotBlank())
+                assertTrue(sample.snapshot.phaseDetail.isNotBlank())
+                assertTrue(sample.snapshot.simTime > 0.0)
             }
         }
     }

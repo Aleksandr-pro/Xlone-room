@@ -51,6 +51,26 @@ data class ReadyLabWork(
     val initialParams: Map<String, Double>
 )
 
+/** Один автоматический замер: параметры выставляются, модель прогоняется и показания попадают в отчёт. */
+data class AutoLabStep(
+    val id: String,
+    val title: String,
+    val instruction: String,
+    val params: Map<String, Double>,
+    val durationSec: Double = 0.10
+)
+
+/** Готовая авто-серия для 10–11 классов. Выполняется локально, без сети и без «подстановки» данных. */
+data class AutoLabWork(
+    val id: String,
+    val title: String,
+    val grade: String,
+    val goal: String,
+    val topic: ExperimentTopic,
+    val expectedConclusion: String,
+    val steps: List<AutoLabStep>
+)
+
 enum class ExperimentTopic(
     val id: String,
     val title: String,
@@ -449,6 +469,133 @@ enum class ExperimentTopic(
     }
 
     companion object {
+        /**
+         * Автоматические лабораторные серии для старшей школы.
+         * Каждый этап — реальный прогон PhysicsEngine с заданными параметрами;
+         * снимки сохраняются как обычные измерения комнаты и входят в текстовый отчёт.
+         */
+        fun autoLabWorks10To11(): List<AutoLabWork> = listOf(
+            AutoLabWork(
+                "auto10_impulse", "Авто №10.1: Импульс и энергия при столкновении", "10 класс",
+                "Автоматически сравнить упругий и неупругий удар на воздушной дорожке.", COLLISIONS,
+                "В замкнутой системе импульс сохраняется в обоих опытах; кинетическая энергия сохраняется только при e = 1.",
+                listOf(
+                    AutoLabStep("a10i_elastic", "Упругий удар e = 1", "Прогнать шары до столкновения и снять скорости после удара.", mapOf("m1" to 3.0, "v1" to 5.0, "m2" to 1.5, "v2" to -2.0, "restitution" to 1.0, "friction" to 0.0), 1.45),
+                    AutoLabStep("a10i_inelastic", "Неупругий удар e = 0", "Повторить опыт со слипанием шаров и записать потерю энергии.", mapOf("m1" to 3.0, "v1" to 5.0, "m2" to 1.5, "v2" to -2.0, "restitution" to 0.0, "friction" to 0.0), 1.45)
+                )
+            ),
+            AutoLabWork(
+                "auto10_pendulum", "Авто №10.2: Период математического маятника", "10 класс",
+                "Проверить зависимость периода T от длины нити L при постоянном g.", PENDULUM,
+                "Период растёт как √L и не зависит от массы груза: T = 2π√(L/g).",
+                listOf(
+                    AutoLabStep("a10p_l08", "Нить L = 0,80 м", "Снять период колебаний маятника с короткой нитью.", mapOf("mode" to 0.0, "length" to 0.80, "mass" to 1.0, "angle0" to 16.0, "damping" to 0.0), 5.9),
+                    AutoLabStep("a10p_l14", "Нить L = 1,40 м", "Увеличить длину и повторить измерение периода.", mapOf("mode" to 0.0, "length" to 1.40, "mass" to 1.0, "angle0" to 16.0, "damping" to 0.0), 7.8),
+                    AutoLabStep("a10p_mass", "Контроль массы m = 4 кг", "Изменить только массу — период должен остаться тем же.", mapOf("mode" to 0.0, "length" to 1.40, "mass" to 4.0, "angle0" to 16.0, "damping" to 0.0), 7.8)
+                )
+            ),
+            AutoLabWork(
+                "auto10_gas", "Авто №10.3: Закон Бойля—Мариотта", "10 класс",
+                "Получить серию P(V) для изотермического сжатия идеального газа.", IDEAL_GAS,
+                "При неизменной температуре произведение P·V постоянно: уменьшение V вдвое удваивает давление.",
+                listOf(
+                    AutoLabStep("a10g_v8", "Объём V = 8,0 л", "Снять давление в исходном широком сосуде.", mapOf("processMode" to 0.0, "temperature" to 300.0, "volume" to 8.0, "particles" to 100.0), 0.10),
+                    AutoLabStep("a10g_v5", "Объём V = 5,0 л", "Сжать газ при постоянной температуре и снять давление.", mapOf("processMode" to 0.0, "temperature" to 300.0, "volume" to 5.0, "particles" to 100.0), 0.10),
+                    AutoLabStep("a10g_v4", "Объём V = 4,0 л", "Продолжить изотермическое сжатие до половины исходного объёма.", mapOf("processMode" to 0.0, "temperature" to 300.0, "volume" to 4.0, "particles" to 100.0), 0.10)
+                )
+            ),
+            AutoLabWork(
+                "auto10_ohm", "Авто №10.4: Закон Ома для участков цепи", "10 класс",
+                "Сравнить ток и эквивалентное сопротивление в последовательной и параллельной цепях.", CIRCUITS,
+                "При параллельном соединении эквивалентное сопротивление меньше, поэтому ток источника больше, чем при последовательном.",
+                listOf(
+                    AutoLabStep("a10o_series", "Последовательное соединение", "Записать I для R₁ = 10 Ом и R₂ = 20 Ом.", mapOf("topology" to 0.0, "switchClosed" to 1.0, "emf" to 12.0, "rInt" to 0.0, "r1" to 10.0, "r2" to 20.0), 0.10),
+                    AutoLabStep("a10o_parallel", "Параллельное соединение", "Переключить те же резисторы параллельно и снять ток.", mapOf("topology" to 1.0, "switchClosed" to 1.0, "emf" to 12.0, "rInt" to 0.0, "r1" to 10.0, "r2" to 20.0), 0.10),
+                    AutoLabStep("a10o_internal", "Учёт внутреннего сопротивления", "Добавить r = 2 Ом и увидеть падение тока источника.", mapOf("topology" to 0.0, "switchClosed" to 1.0, "emf" to 12.0, "rInt" to 2.0, "r1" to 10.0, "r2" to 20.0), 0.10)
+                )
+            ),
+            AutoLabWork(
+                "auto10_waves", "Авто №10.5: Стоячие волны и гармоники", "10 класс",
+                "Построить три режима стоячей волны на струне фиксированной длины.", WAVES,
+                "При постоянной скорости волны рост частоты уменьшает λ = v/f, поэтому на струне укладывается больше полуволн.",
+                listOf(
+                    AutoLabStep("a10w_h2", "2-я гармоника", "Задать частоту, при которой на струне видны два полуволновых сегмента.", mapOf("waveMode" to 0.0, "frequency" to 1.6, "waveSpeed" to 16.0, "amplitude" to 5.0, "damping" to 0.0), 0.60),
+                    AutoLabStep("a10w_h3", "3-я гармоника", "Повысить частоту до трёх сегментов.", mapOf("waveMode" to 0.0, "frequency" to 2.4, "waveSpeed" to 16.0, "amplitude" to 5.0, "damping" to 0.0), 0.60),
+                    AutoLabStep("a10w_h4", "4-я гармоника", "Повысить частоту до четырёх сегментов.", mapOf("waveMode" to 0.0, "frequency" to 3.2, "waveSpeed" to 16.0, "amplitude" to 5.0, "damping" to 0.0), 0.60)
+                )
+            ),
+            AutoLabWork(
+                "auto10_lorentz", "Авто №10.6: Сила Лоренца и радиус траектории", "10 класс",
+                "Сравнить движение заряда в магнитном поле при трёх значениях B.", ELECTROSTATICS,
+                "При неизменной скорости радиус циклотрона обратно пропорционален B: R = mv/(|q|B).",
+                listOf(
+                    AutoLabStep("a10l_b4", "Поле B = 4 мТл", "Прогнать заряд в слабом поле и снять радиус траектории.", mapOf("fieldMode" to 1.0, "charge" to 1.0, "v0" to 9.0, "eField" to 0.0, "bField" to 4.0, "massNum" to 1.5), 0.80),
+                    AutoLabStep("a10l_b8", "Поле B = 8 мТл", "Удвоить B, не меняя скорость заряда.", mapOf("fieldMode" to 1.0, "charge" to 1.0, "v0" to 9.0, "eField" to 0.0, "bField" to 8.0, "massNum" to 1.5), 0.80),
+                    AutoLabStep("a10l_b12", "Поле B = 12 мТл", "Повторить в сильном поле.", mapOf("fieldMode" to 1.0, "charge" to 1.0, "v0" to 9.0, "eField" to 0.0, "bField" to 12.0, "massNum" to 1.5), 0.80)
+                )
+            ),
+            AutoLabWork(
+                "auto11_induction", "Авто №11.1: Закон Фарадея—Ленца", "11 класс",
+                "Исследовать зависимость ЭДС индукции от скорости магнита и числа витков катушки.", ELECTROMAGNETIC,
+                "ЭДС индукции возрастает при быстром изменении потока и при увеличении числа витков: ε = −N·ΔΦ/Δt.",
+                listOf(
+                    AutoLabStep("a11e_slow", "Медленное движение f = 0,6 Гц", "Снять ЭДС при 60 витках и медленном движении магнита.", mapOf("autoOscillate" to 1.0, "turns" to 60.0, "magStrength" to 1.2, "freq" to 0.6, "coilRes" to 10.0), 0.60),
+                    AutoLabStep("a11e_fast", "Быстрое движение f = 2,0 Гц", "Увеличить скорость изменения магнитного потока.", mapOf("autoOscillate" to 1.0, "turns" to 60.0, "magStrength" to 1.2, "freq" to 2.0, "coilRes" to 10.0), 0.60),
+                    AutoLabStep("a11e_turns", "120 витков, f = 2,0 Гц", "Удвоить число витков и повторить измерение.", mapOf("autoOscillate" to 1.0, "turns" to 120.0, "magStrength" to 1.2, "freq" to 2.0, "coilRes" to 10.0), 0.60)
+                )
+            ),
+            AutoLabWork(
+                "auto11_lens", "Авто №11.2: Формула тонкой линзы", "11 класс",
+                "Автоматически построить изображение предмета при трёх расстояниях до собирающей линзы.", OPTICS,
+                "При d > F изображение действительное и перевёрнутое; при d < F оно становится мнимым, прямым и увеличенным.",
+                listOf(
+                    AutoLabStep("a11ln_far", "Предмет d = 50 см", "Снять положение уменьшенного действительного изображения.", mapOf("optMode" to 0.0, "focalLen" to 15.0, "objDist" to 50.0, "objHeight" to 8.0), 0.10),
+                    AutoLabStep("a11ln_2f", "Предмет d = 30 см = 2F", "Получить изображение того же размера в точке 2F.", mapOf("optMode" to 0.0, "focalLen" to 15.0, "objDist" to 30.0, "objHeight" to 8.0), 0.10),
+                    AutoLabStep("a11ln_loupe", "Предмет d = 10 см < F", "Перевести линзу в режим лупы.", mapOf("optMode" to 0.0, "focalLen" to 15.0, "objDist" to 10.0, "objHeight" to 8.0), 0.10)
+                )
+            ),
+            AutoLabWork(
+                "auto11_snell", "Авто №11.3: Преломление и полное отражение", "11 класс",
+                "Проверить закон Снеллиуса и определить переход к полному внутреннему отражению.", OPTICS,
+                "При переходе стекло → воздух существует критический угол; выше него луч не преломляется, а полностью отражается.",
+                listOf(
+                    AutoLabStep("a11s_30", "Падение α = 30°", "Снять угол преломления на границе стекло → воздух.", mapOf("optMode" to 1.0, "n1" to 1.52, "n2" to 1.00, "incidentAngle" to 30.0, "dispersion" to 0.0), 0.10),
+                    AutoLabStep("a11s_40", "Падение α = 40°", "Приблизиться к критическому углу.", mapOf("optMode" to 1.0, "n1" to 1.52, "n2" to 1.00, "incidentAngle" to 40.0, "dispersion" to 0.0), 0.10),
+                    AutoLabStep("a11s_50", "Падение α = 50°", "Зафиксировать полное внутреннее отражение.", mapOf("optMode" to 1.0, "n1" to 1.52, "n2" to 1.00, "incidentAngle" to 50.0, "dispersion" to 0.0), 0.10)
+                )
+            ),
+            AutoLabWork(
+                "auto11_photoelectric", "Авто №11.4: Красная граница фотоэффекта", "11 класс",
+                "Сравнить фототок цезия для УФ, синего и красного света.", PHOTOELECTRIC,
+                "Фотоэффект возможен лишь при энергии фотона hc/λ выше работы выхода; яркость меняет число электронов, а цвет — их энергию.",
+                listOf(
+                    AutoLabStep("a11ph_uv", "УФ λ = 320 нм", "Снять фототок при энергии фотона существенно выше работы выхода.", mapOf("cathodeMetal" to 0.0, "wavelengthNm" to 320.0, "intensity" to 70.0, "voltage" to 1.0), 0.80),
+                    AutoLabStep("a11ph_blue", "Синий λ = 460 нм", "Повторить для видимого света выше красной границы цезия.", mapOf("cathodeMetal" to 0.0, "wavelengthNm" to 460.0, "intensity" to 70.0, "voltage" to 1.0), 0.80),
+                    AutoLabStep("a11ph_red", "Красный λ = 680 нм", "Зафиксировать прекращение фототока выше красной границы.", mapOf("cathodeMetal" to 0.0, "wavelengthNm" to 680.0, "intensity" to 100.0, "voltage" to 1.0), 0.80)
+                )
+            ),
+            AutoLabWork(
+                "auto11_decay", "Авто №11.5: Закон радиоактивного распада", "11 класс",
+                "Сравнить число ядер N через один и два периода полураспада.", RADIOACTIVE,
+                "Случайный распад отдельных ядер в среднем даёт экспоненту N(t) = N₀·2^(−t/T₁/₂): после одного периода остаётся около половины ядер.",
+                listOf(
+                    AutoLabStep("a11r_start", "Начало опыта N₀ = 400", "Зафиксировать начальное количество ядер.", mapOf("isotope" to 3.0, "halfLife" to 2.0, "nucleiCount" to 400.0), 0.02),
+                    AutoLabStep("a11r_half", "Через один период T₁/₂", "Прогнать модель 2 секунды и снять оставшееся число ядер.", mapOf("isotope" to 3.0, "halfLife" to 2.0, "nucleiCount" to 400.0), 2.0),
+                    AutoLabStep("a11r_twohalf", "Через два периода T₁/₂", "Прогнать независимый опыт 4 секунды и сравнить с N₀/4.", mapOf("isotope" to 3.0, "halfLife" to 2.0, "nucleiCount" to 400.0), 4.0)
+                )
+            ),
+            AutoLabWork(
+                "auto11_orbits", "Авто №11.6: Орбиты и законы Кеплера", "11 класс",
+                "Сравнить круговую, эллиптическую и незамкнутую орбиту при разных стартовых скоростях.", ORBITS,
+                "При v = v₁ орбита почти круговая, при v₁ < v < v₂ — эллиптическая, а при v ≥ v₂ становится незамкнутой.",
+                listOf(
+                    AutoLabStep("a11o_circle", "Круговая орбита v = 29,8 км/с", "Прогнать планету у звезды солнечной массы с первой космической скоростью.", mapOf("starMass" to 1.0, "orbitR" to 1.0, "tangVel" to 29.785, "launchAngle" to 0.0), 2.0),
+                    AutoLabStep("a11o_ellipse", "Эллиптическая орбита v = 33 км/с", "Увеличить скорость выше первой космической и снять rmin/rmax.", mapOf("starMass" to 1.0, "orbitR" to 1.0, "tangVel" to 33.0, "launchAngle" to 0.0), 2.0),
+                    AutoLabStep("a11o_escape", "Траектория ухода v = 43 км/с", "Задать скорость выше второй космической.", mapOf("starMass" to 1.0, "orbitR" to 1.0, "tangVel" to 43.0, "launchAngle" to 0.0), 2.0)
+                )
+            )
+        )
+
         fun readyLabWorks(): List<ReadyLabWork> = listOf(
             ReadyLabWork("lw_archimedes", "Лаб. №1: Сила Архимеда и плавание тел", "7 класс", "Изучить выталкивающую силу и условие плавания в разных жидкостях", BUOYANCY, mapOf("liquidType" to 0.0, "liquidDensity" to 1000.0, "bodyDensity" to 750.0, "holdSensor" to 0.0)),
             ReadyLabWork("lw_inclined", "Лаб. №2: Наклонная плоскость и трение покоя", "7–9 класс", "Определить угол срыва бруска и сравнить скатывающую силу с трением", INCLINED_PLANE, mapOf("slopeAngle" to 18.0, "mass" to 4.0, "frictionMu" to 0.35, "pullForce" to 0.0)),

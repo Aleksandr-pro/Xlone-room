@@ -97,6 +97,11 @@ class RoomRepository(context: Context?) {
         sb.appendLine("Цель работы: ${room.goal}")
         sb.appendLine("Дата: ${df.format(Date())}")
         sb.appendLine("Основная формула: ${room.topic.mainFormula}")
+        val autoCompletion = room.journal.firstOrNull { it.kind == "AUTO" && it.title.startsWith("Автосерия завершена") }
+        if (autoCompletion != null) {
+            sb.appendLine("Режим выполнения: автоматическая серия PhysLab (локальный расчёт модели)")
+            sb.appendLine(autoCompletion.detail)
+        }
         sb.appendLine()
         sb.appendLine("--- 1. Текущие параметры установки ---")
         for (d in room.topic.descriptors()) {
