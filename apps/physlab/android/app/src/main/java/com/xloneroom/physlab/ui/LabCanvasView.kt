@@ -1000,10 +1000,10 @@ class LabCanvasView(context: Context) : View(context) {
 
         val liqType = (params["liquidType"] ?: 0.0).toInt()
         val liqColor = when (liqType) {
-            0 -> 0x6638BDF8 // water
-            1 -> 0x66FACC15 // oil
-            2 -> 0x662DD4BF // glycerin
-            else -> 0x9994A3B8 // mercury
+            0 -> 0x6638BDF8.toInt() // water
+            1 -> 0x66FACC15.toInt() // oil
+            2 -> 0x662DD4BF.toInt() // glycerin
+            else -> 0x9994A3B8.toInt() // mercury
         }
         val baseWaterY = tankTop + tankH * 0.45f
         val risePx = (eng.buoySubmergedFrac * 14f * d).toFloat()
