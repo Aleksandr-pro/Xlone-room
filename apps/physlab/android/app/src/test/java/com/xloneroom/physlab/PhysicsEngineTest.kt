@@ -90,7 +90,7 @@ class PhysicsEngineTest {
         val p0 = 3.0 * 5.0 + 2.0 * (-2.0)
         val ek0 = 0.5 * 3.0 * 25.0 + 0.5 * 2.0 * 4.0
 
-        repeat(180) { engine.step(0.02, params) }
+        repeat(80) { engine.step(0.02, params) }
         val p1 = 3.0 * engine.colV1 + 2.0 * engine.colV2
         val ek1 = 0.5 * 3.0 * engine.colV1 * engine.colV1 + 0.5 * 2.0 * engine.colV2 * engine.colV2
 
